@@ -51,6 +51,23 @@ export function buildCity(seed) {
         }
       }
     }
+    // Rooftop details (AC units, vents, skylights), precomputed once via
+    // hash2 so render just draws them. Purely visual.
+    const roofDetails = [];
+    const dcols = Math.max(1, Math.floor(w / 64));
+    const drows = Math.max(1, Math.floor(h / 64));
+    for (let dx = 0; dx < dcols; dx += 1) {
+      for (let dy = 0; dy < drows; dy += 1) {
+        const hv = hash2(x + dx * 53 + 7, y + dy * 47 + 3);
+        if (hv < 0.34) {
+          roofDetails.push({
+            kind: hv < 0.14 ? 'ac' : hv < 0.24 ? 'vent' : 'sky',
+            x: x + 24 + dx * 64,
+            y: y + 24 + dy * 64,
+          });
+        }
+      }
+    }
     buildings.push({
       x, y, w, h,
       color: COLORS.building[i],
@@ -58,6 +75,7 @@ export function buildCity(seed) {
       name: name || null,
       label: label || null,
       windows,
+      roofDetails,
     });
     return buildings[buildings.length - 1];
   }

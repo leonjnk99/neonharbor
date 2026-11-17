@@ -3,7 +3,8 @@
 import { ROAD_HALF, WORLD_W, WORLD_H } from './config.js';
 import { pick, range, chance } from './random.js';
 
-const PED_COLORS = ['#e8e0d0', '#d0d8e8', '#e8c8c0', '#c8e0c8', '#e0d0a8', '#c8c8d8', '#f0e8d8'];
+const PED_COLORS = ['#e8e0d0', '#d0d8e8', '#e8c8c0', '#c8e0c8', '#e0d0a8', '#c8c8d8', '#f0e8d8',
+  '#e85d3d', '#4f7ec9', '#f2c230', '#8c5da8', '#3f9e6e', '#d86a9a', '#5da8a0', '#c96a3f', '#7a6fd0'];
 
 export function makePed(city, rng, x, y) {
   const p = city.sidewalkPoint();

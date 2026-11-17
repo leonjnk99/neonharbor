@@ -7,12 +7,16 @@ export function createUI(callbacks) {
       <div id="hud-top">
         <div id="hud-left">
           <div id="stars"></div>
-          <div id="cash">$0</div>
         </div>
         <div id="objective"></div>
         <div id="hud-right">
-          <div id="health-wrap"><div id="health-bar"></div><span id="health-text"></span></div>
-          <div id="ammo"></div>
+          <div id="hud-cluster">
+            <div id="hud-stats">
+              <div id="health-wrap"><div id="health-bar"></div><span id="health-text"></span></div>
+              <div id="cash">$0</div>
+            </div>
+            <div id="weapon-badge"><span id="ammo"></span></div>
+          </div>
         </div>
       </div>
       <div id="prompt"></div>

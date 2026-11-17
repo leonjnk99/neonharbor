@@ -20,12 +20,15 @@
   #hud-right { align-items: flex-end; }
   #stars { font-size: 26px; letter-spacing: 2px; color: #8a8f96; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
   #stars.hot { color: #ffd76a; }
-  #cash { font-size: 24px; font-weight: 800; color: #7ee787; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #cash { font-size: 24px; font-weight: 800; color: #ffd76a; text-shadow: 0 2px 6px rgba(0,0,0,.7); text-align: right; }
   #objective { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: #ffe9a8; text-shadow: 0 2px 6px rgba(0,0,0,.8); padding-top: 6px; }
+  #hud-cluster { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; }
+  #hud-stats { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
   #health-wrap { width: 180px; height: 18px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); border-radius: 9px; overflow: hidden; position: relative; }
-  #health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #e05a4e, #ff8a5c); transition: width .2s; }
+  #health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #d43d2a, #ff7a4d); transition: width .2s; }
   #health-text { position: absolute; inset: 0; text-align: center; font-size: 12px; font-weight: 700; line-height: 18px; }
-  #ammo { font-size: 16px; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #weapon-badge { width: 58px; height: 58px; border-radius: 50%; background: rgba(0,0,0,.55); border: 2px solid rgba(255,255,255,.75); display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,.6); flex: none; }
+  #ammo { font-size: 13px; font-weight: 700; line-height: 1.15; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
   #prompt { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #7ee8fa; background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 8px; }
   #prompt:empty { display: none; }
   #hint { position: absolute; right: 14px; bottom: 12px; font-size: 12px; color: rgba(245,240,230,.75); text-shadow: 0 1px 4px rgba(0,0,0,.8); }

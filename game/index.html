@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>NEONHARBOR — an open-world crime game</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0b0b14; overflow: hidden; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5f0e6; }
+  #wrap { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  canvas { width: min(100vw, 177.78vh); height: min(100vh, 56.25vw); display: block; background: #1a2b1e; touch-action: none; }
+  #ui { position: absolute; inset: 0; pointer-events: none; }
+  .hidden { display: none !important; }
+
+  /* HUD */
+  #hud { position: absolute; inset: 0; }
+  #hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 16px; gap: 12px; }
+  #hud-left, #hud-right { display: flex; flex-direction: column; gap: 4px; }
+  #hud-right { align-items: flex-end; }
+  #stars { font-size: 26px; letter-spacing: 2px; color: #8a8f96; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #stars.hot { color: #ffd76a; }
+  #cash { font-size: 24px; font-weight: 800; color: #7ee787; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #objective { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: #ffe9a8; text-shadow: 0 2px 6px rgba(0,0,0,.8); padding-top: 6px; }
+  #health-wrap { width: 180px; height: 18px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); border-radius: 9px; overflow: hidden; position: relative; }
+  #health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #e05a4e, #ff8a5c); transition: width .2s; }
+  #health-text { position: absolute; inset: 0; text-align: center; font-size: 12px; font-weight: 700; line-height: 18px; }
+  #ammo { font-size: 16px; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #prompt { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #7ee8fa; background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 8px; }
+  #prompt:empty { display: none; }
+  #hint { position: absolute; right: 14px; bottom: 12px; font-size: 12px; color: rgba(245,240,230,.75); text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+
+  /* Banner */
+  #banner { position: absolute; top: 18%; left: 0; right: 0; text-align: center; }
+  #banner-title { font-size: 44px; font-weight: 900; letter-spacing: 2px; color: #ffd76a; text-shadow: 0 3px 12px rgba(0,0,0,.85); }
+  #banner-sub { font-size: 18px; color: #f5f0e6; text-shadow: 0 2px 8px rgba(0,0,0,.85); margin-top: 6px; }
+
+  /* Screens */
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: radial-gradient(ellipse at 50% 35%, rgba(60,20,90,.88), rgba(8,8,18,.96)); pointer-events: auto; text-align: center; padding: 24px; }
+  .screen h1 { font-size: 64px; font-weight: 900; letter-spacing: 6px; color: #f5f0e6; }
+  .screen h1 span { color: #ff5ea8; }
+  .screen h2 { font-size: 52px; font-weight: 900; letter-spacing: 4px; }
+  .screen h2.red { color: #ff4d4d; }
+  .screen h2.blue { color: #5ea8ff; }
+  .screen h2.gold { color: #ffd76a; }
+  .tagline { font-size: 18px; color: #c8c4d8; max-width: 560px; }
+  .menu { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+  .menu button { pointer-events: auto; cursor: pointer; font: inherit; font-size: 18px; font-weight: 700; padding: 12px 20px; border-radius: 10px; border: 1px solid #ff5ea8; background: rgba(255,94,168,.15); color: #f5f0e6; }
+  .menu button:hover { background: rgba(255,94,168,.35); }
+  #help { font-size: 15px; line-height: 1.7; color: #d8d4e8; background: rgba(0,0,0,.4); border-radius: 10px; padding: 14px 20px; max-width: 640px; }
+  .fine { font-size: 12px; color: rgba(245,240,230,.5); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+  <div id="ui"></div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

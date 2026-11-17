@@ -1,0 +1,3414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>NEONHARBOR — an open-world crime game</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0b0b14; overflow: hidden; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5f0e6; }
+  #wrap { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+  canvas { width: min(100vw, 177.78vh); height: min(100vh, 56.25vw); display: block; background: #1a2b1e; touch-action: none; }
+  #ui { position: absolute; inset: 0; pointer-events: none; }
+  .hidden { display: none !important; }
+
+  /* HUD */
+  #hud { position: absolute; inset: 0; }
+  #hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 16px; gap: 12px; }
+  #hud-left, #hud-right { display: flex; flex-direction: column; gap: 4px; }
+  #hud-right { align-items: flex-end; }
+  #stars { font-size: 26px; letter-spacing: 2px; color: #8a8f96; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #stars.hot { color: #ffd76a; }
+  #cash { font-size: 24px; font-weight: 800; color: #7ee787; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #objective { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: #ffe9a8; text-shadow: 0 2px 6px rgba(0,0,0,.8); padding-top: 6px; }
+  #health-wrap { width: 180px; height: 18px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.35); border-radius: 9px; overflow: hidden; position: relative; }
+  #health-bar { height: 100%; width: 100%; background: linear-gradient(90deg, #e05a4e, #ff8a5c); transition: width .2s; }
+  #health-text { position: absolute; inset: 0; text-align: center; font-size: 12px; font-weight: 700; line-height: 18px; }
+  #ammo { font-size: 16px; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+  #prompt { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); font-size: 16px; font-weight: 700; color: #7ee8fa; background: rgba(0,0,0,.55); padding: 6px 14px; border-radius: 8px; }
+  #prompt:empty { display: none; }
+  #hint { position: absolute; right: 14px; bottom: 12px; font-size: 12px; color: rgba(245,240,230,.75); text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+
+  /* Banner */
+  #banner { position: absolute; top: 18%; left: 0; right: 0; text-align: center; }
+  #banner-title { font-size: 44px; font-weight: 900; letter-spacing: 2px; color: #ffd76a; text-shadow: 0 3px 12px rgba(0,0,0,.85); }
+  #banner-sub { font-size: 18px; color: #f5f0e6; text-shadow: 0 2px 8px rgba(0,0,0,.85); margin-top: 6px; }
+
+  /* Screens */
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: radial-gradient(ellipse at 50% 35%, rgba(60,20,90,.88), rgba(8,8,18,.96)); pointer-events: auto; text-align: center; padding: 24px; }
+  .screen h1 { font-size: 64px; font-weight: 900; letter-spacing: 6px; color: #f5f0e6; }
+  .screen h1 span { color: #ff5ea8; }
+  .screen h2 { font-size: 52px; font-weight: 900; letter-spacing: 4px; }
+  .screen h2.red { color: #ff4d4d; }
+  .screen h2.blue { color: #5ea8ff; }
+  .screen h2.gold { color: #ffd76a; }
+  .tagline { font-size: 18px; color: #c8c4d8; max-width: 560px; }
+  .menu { display: flex; flex-direction: column; gap: 10px; min-width: 260px; }
+  .menu button { pointer-events: auto; cursor: pointer; font: inherit; font-size: 18px; font-weight: 700; padding: 12px 20px; border-radius: 10px; border: 1px solid #ff5ea8; background: rgba(255,94,168,.15); color: #f5f0e6; }
+  .menu button:hover { background: rgba(255,94,168,.35); }
+  #help { font-size: 15px; line-height: 1.7; color: #d8d4e8; background: rgba(0,0,0,.4); border-radius: 10px; padding: 14px 20px; max-width: 640px; }
+  .fine { font-size: 12px; color: rgba(245,240,230,.5); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="1280" height="720"></canvas>
+  <div id="ui"></div>
+</div>
+<script>
+
+// ---- config.js ----
+// NEONHARBOR — tuning, city layout, vehicles, missions. One place for every number
+// the rest of the game reads, so balancing is an edit here, not a hunt.
+const STEP = 1 / 60;
+const TILE = 64;
+const WORLD_W = 2560;
+const WORLD_H = 1792;
+const ROAD_HALF = 48;
+const WATER_X = 2432;
+
+// Road centrelines. Avenues run north-south, streets east-west.
+const AVENUES = [320, 704, 1088, 1472, 1856, 2240];
+const STREETS = [256, 576, 896, 1216, 1536];
+
+// Player on foot.
+const PLAYER = {
+  walkSpeed: 215,
+  radius: 14,
+  maxHealth: 100,
+  punchDamage: 22,
+  punchRange: 48,
+  punchInterval: 0.45,
+};
+
+// Cars. maxSpeed px/s, accel px/s^2, grip 0..1 (how much steering bites), size half-extents.
+const CAR_TYPES = {
+  sedan: { name: 'Sedan', maxSpeed: 390, accel: 300, grip: 0.9, w: 46, l: 84, colors: ['#c94f4f', '#4f7ec9', '#c9a44f', '#7a7f8c'] },
+  sport: { name: 'Sunray', maxSpeed: 530, accel: 380, grip: 1.0, w: 44, l: 86, colors: ['#f2c230', '#e85d3d'] },
+  taxi: { name: 'Taxi', maxSpeed: 410, accel: 320, grip: 0.92, w: 46, l: 84, colors: ['#f2c230'] },
+  van: { name: 'Van', maxSpeed: 330, accel: 250, grip: 0.8, w: 52, l: 96, colors: ['#8c8f96', '#5d7a5d'] },
+  truck: { name: 'Hauler', maxSpeed: 300, accel: 220, grip: 0.75, w: 56, l: 110, colors: ['#6b5d8c', '#8c6b4f'] },
+  police: { name: 'Cruiser', maxSpeed: 490, accel: 360, grip: 0.98, w: 46, l: 86, colors: ['#20242e'] },
+};
+const CAR = {
+  brake: 540,
+  reverseMax: 170,
+  turnRate: 2.5,
+  handbrakeTurn: 1.7,
+  enterRange: 100,
+  damagePerHit: 14,
+  maxHealth: 100,
+};
+
+// Wanted: heat 0..125, stars = ceil(heat / 25) capped at 5.
+const WANTED = {
+  maxHeat: 125,
+  perStar: 25,
+  decayPerSec: 2.2,
+  crime: { steal: 30, pedHit: 40, shoot: 25, copKill: 45, copHit: 20, trafficBump: 8, mission: 15 },
+  maxFootCops: 4,
+  maxPoliceCars: 3,
+};
+
+// Combat.
+const COMBAT = {
+  pistolDamage: 34,
+  pistolInterval: 0.22,
+  pistolAmmoStart: 24,
+  pistolAmmoPrice: 40,
+  pistolAmmoCount: 12,
+  bulletSpeed: 950,
+  bulletRange: 720,
+  guardHealth: 100,
+  guardDamage: 8,
+  guardInterval: 0.95,
+  guardRange: 520,
+};
+
+// Economy.
+const ECONOMY = {
+  startCash: 120,
+  repairPrice: 80,
+  healPrice: 60,
+  taxiBase: 60,
+  taxiPerPx: 0.045,
+  deliveryPay: 50,
+};
+
+// Mission list: story order. Steps are data; missions.js runs them.
+const MISSIONS = [
+  {
+    id: 'fare', name: 'First Fare', giver: 'Mara', reward: 150,
+    brief: 'Mara needs a driver. Pick up the fare at the Lantern Bar and drop them at the Marina — quick, and don\'t scratch the paint.',
+    steps: [
+      { type: 'goto', label: 'Pick up the fare at the Lantern Bar', zone: 'bar' },
+      { type: 'pickup', label: 'Fare aboard — drive to the Marina', zone: 'marina', time: 75 },
+    ],
+  },
+  {
+    id: 'wheels', name: 'Hot Wheels', giver: 'Deke', reward: 300,
+    brief: 'Deke wants a yellow Sunray, parked in the north lot. Take it — any way you like — and bring it to the Chop Shop.',
+    steps: [
+      { type: 'steal', label: 'Steal the yellow Sunray from the north lot', car: 'sunray' },
+      { type: 'deliverCar', label: 'Deliver the Sunray to the Chop Shop', zone: 'chop' },
+    ],
+  },
+  {
+    id: 'tail', name: 'The Tail', giver: 'Mara', reward: 400,
+    brief: 'A courier in a grey sedan is carrying something Mara wants to know about. Follow it to its hideout. Close enough to see, far enough to stay invisible.',
+    steps: [
+      { type: 'follow', label: 'Follow the grey sedan — stay 120 to 380 px back', car: 'target', duration: 45 },
+    ],
+  },
+  {
+    id: 'getaway', name: 'Getaway', giver: 'Deke', reward: 350,
+    brief: 'The harbor patrol is all over you. Lose the heat — get to zero stars — then slip home to the Loft.',
+    steps: [
+      { type: 'loseWanted', label: 'Lose the cops — get to zero stars', startWanted: 75 },
+      { type: 'goto', label: 'Slip home to Rook\'s Loft', zone: 'loft' },
+    ],
+  },
+  {
+    id: 'drop', name: 'The Drop', giver: 'Iris', reward: 450,
+    brief: 'A parcel for the Marina, sixty seconds, and the patrol already knows your plates. Drive like the harbor is on fire.',
+    steps: [
+      { type: 'pickup', label: 'Grab the parcel at the Taxi Depot', zone: 'depot', startWanted: 50 },
+      { type: 'deliver', label: 'Deliver the parcel to the Marina', zone: 'marina', time: 60 },
+    ],
+  },
+  {
+    id: 'heist', name: 'Harbor Heist', giver: 'Mara', reward: 1200,
+    brief: 'The Harbor Bank vault, six seconds at the door, then out. Guards inside, patrol outside. Bring the cash home and the harbor is yours.',
+    steps: [
+      { type: 'goto', label: 'Get inside the Harbor Bank', zone: 'bank' },
+      { type: 'hold', label: 'Hold at the vault — crack it open', zone: 'vault', hold: 6 },
+      { type: 'escape', label: 'Escape! Lose the heat, then reach the Loft', zone: 'loft' },
+    ],
+  },
+];
+
+// Dusk palette for the sun-soaked coastal city.
+const COLORS = {
+  ground: '#c9a06a',
+  groundAlt: '#b98f5c',
+  park: '#7fae62',
+  sand: '#e0c184',
+  water: '#2e6f8e',
+  waterDeep: '#245a75',
+  road: '#3a3f4a',
+  roadEdge: '#565c6b',
+  sidewalk: '#b9b3a4',
+  laneDash: '#e8d44f',
+  building: ['#d97b5f', '#e8a35c', '#7fb3c9', '#c97b9a', '#8fae7f', '#b3a06e', '#9a86c9', '#6e8fb3'],
+  roof: ['#a85a44', '#b57e3f', '#5d8aa0', '#a35d78', '#6e8a5d', '#8c7d52', '#7a68a3', '#54708c'],
+  palm: '#4f8f4f',
+  palmTrunk: '#8a6a4a',
+};
+
+
+// ---- random.js ----
+// Seeded RNG (mulberry32) so a ?seed=N run is the same run every time.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function random() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pick(rng, array) {
+  return array[Math.floor(rng() * array.length)];
+}
+
+function range(rng, min, max) {
+  return min + rng() * (max - min);
+}
+
+function rangeInt(rng, min, max) {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+function chance(rng, p) {
+  return rng() < p;
+}
+
+
+// ---- input.js ----
+// Keyboard, mouse and touch input. The game reads a plain state object each step:
+// keys held, edges (pressed this step), mouse position in canvas pixels, clicks.
+function createInput(canvas) {
+  const input = {
+    keys: new Set(),
+    pressed: new Set(),
+    mouseX: 0,
+    mouseY: 0,
+    mouseMoved: false,
+    mouseDown: false,
+    clicked: false,
+    // Touch drag: a virtual stick from the touch start point.
+    touchActive: false,
+    touchStartX: 0,
+    touchStartY: 0,
+    touchX: 0,
+    touchY: 0,
+  };
+
+  function keyName(event) {
+    const k = event.key;
+    if (k === ' ') return 'Space';
+    if (k.length === 1) return k.toLowerCase();
+    return k;
+  }
+
+  window.addEventListener('keydown', (event) => {
+    const name = keyName(event);
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(name) || event.key.startsWith('Arrow')) {
+      event.preventDefault();
+    }
+    if (!event.repeat) {
+      input.keys.add(name);
+      input.pressed.add(name);
+    }
+  });
+  window.addEventListener('keyup', (event) => {
+    input.keys.delete(keyName(event));
+  });
+  window.addEventListener('blur', () => {
+    input.keys.clear();
+  });
+
+  function setMouse(event) {
+    const rect = canvas.getBoundingClientRect();
+    input.mouseX = event.clientX - rect.left;
+    input.mouseY = event.clientY - rect.top;
+    input.mouseMoved = true;
+  }
+  canvas.addEventListener('mousemove', setMouse);
+  canvas.addEventListener('mousedown', (event) => {
+    setMouse(event);
+    input.mouseDown = true;
+    input.clicked = true;
+  });
+  window.addEventListener('mouseup', () => {
+    input.mouseDown = false;
+  });
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
+  canvas.addEventListener('touchstart', (event) => {
+    event.preventDefault();
+    const t = event.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    input.touchActive = true;
+    input.touchStartX = t.clientX - rect.left;
+    input.touchStartY = t.clientY - rect.top;
+    input.touchX = input.touchStartX;
+    input.touchY = input.touchStartY;
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (event) => {
+    event.preventDefault();
+    const t = event.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    input.touchX = t.clientX - rect.left;
+    input.touchY = t.clientY - rect.top;
+  }, { passive: false });
+  canvas.addEventListener('touchend', (event) => {
+    event.preventDefault();
+    input.touchActive = false;
+  }, { passive: false });
+
+  // Call once per frame after the step: edges live for one step only.
+  input.endStep = function endStep() {
+    input.pressed.clear();
+    input.clicked = false;
+  };
+
+  input.held = function held(name) {
+    return input.keys.has(name);
+  };
+  input.wasPressed = function wasPressed(name) {
+    return input.pressed.has(name);
+  };
+  // Movement vector from WASD/arrows, or from the touch stick.
+  input.moveVector = function moveVector() {
+    let x = 0;
+    let y = 0;
+    if (input.keys.has('a') || input.keys.has('ArrowLeft')) x -= 1;
+    if (input.keys.has('d') || input.keys.has('ArrowRight')) x += 1;
+    if (input.keys.has('w') || input.keys.has('ArrowUp')) y -= 1;
+    if (input.keys.has('s') || input.keys.has('ArrowDown')) y += 1;
+    if (x === 0 && y === 0 && input.touchActive) {
+      const dx = input.touchX - input.touchStartX;
+      const dy = input.touchY - input.touchStartY;
+      const len = Math.hypot(dx, dy);
+      if (len > 12) {
+        x = dx / len;
+        y = dy / len;
+      }
+    }
+    const len = Math.hypot(x, y);
+    if (len > 1) {
+      x /= len;
+      y /= len;
+    }
+    return { x, y };
+  };
+
+  return input;
+}
+
+
+// ---- audio.js ----
+// WebAudio synth: every sound is generated in code, no audio files. All calls are
+// safe before the audio context exists (headless / Node): they become no-ops.
+let actx = null;
+let master = null;
+let musicGain = null;
+let engineOsc = null;
+let engineGain = null;
+let sirenOsc = null;
+let sirenGain = null;
+let muted = false;
+let musicTimer = null;
+let musicStep = 0;
+
+function isMuted() {
+  return muted;
+}
+
+function ensureAudio() {
+  if (typeof window === 'undefined' || actx) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    master = actx.createGain();
+    master.gain.value = muted ? 0 : 0.5;
+    master.connect(actx.destination);
+    musicGain = actx.createGain();
+    musicGain.gain.value = 0.16;
+    musicGain.connect(master);
+    engineOsc = actx.createOscillator();
+    engineOsc.type = 'sawtooth';
+    engineOsc.frequency.value = 50;
+    engineGain = actx.createGain();
+    engineGain.gain.value = 0;
+    const engineFilter = actx.createBiquadFilter();
+    engineFilter.type = 'lowpass';
+    engineFilter.frequency.value = 420;
+    engineOsc.connect(engineFilter);
+    engineFilter.connect(engineGain);
+    engineGain.connect(master);
+    engineOsc.start();
+    sirenOsc = actx.createOscillator();
+    sirenOsc.type = 'square';
+    sirenOsc.frequency.value = 740;
+    sirenGain = actx.createGain();
+    sirenGain.gain.value = 0;
+    sirenOsc.connect(sirenGain);
+    sirenGain.connect(master);
+    sirenOsc.start();
+  } catch (err) {
+    actx = null;
+  }
+}
+
+function setMuted(value) {
+  muted = value;
+  if (master && actx) master.gain.setTargetAtTime(value ? 0 : 0.5, actx.currentTime, 0.05);
+}
+
+function tone(freq, dur, type, vol, slideTo) {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const osc = actx.createOscillator();
+  osc.type = type || 'sine';
+  osc.frequency.setValueAtTime(freq, t);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+  const g = actx.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.connect(g);
+  g.connect(master);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+function noise(dur, vol, filterFreq) {
+  if (!actx || muted) return;
+  const t = actx.currentTime;
+  const len = Math.max(1, Math.floor(actx.sampleRate * dur));
+  const buffer = actx.createBuffer(1, len, actx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = actx.createBufferSource();
+  src.buffer = buffer;
+  const filter = actx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = filterFreq || 1200;
+  const g = actx.createGain();
+  g.gain.value = vol;
+  src.connect(filter);
+  filter.connect(g);
+  g.connect(master);
+  src.start(t);
+}
+
+const sfx = {
+  click() { tone(660, 0.07, 'square', 0.12); },
+  pickup() { tone(880, 0.09, 'sine', 0.2); tone(1320, 0.12, 'sine', 0.16); },
+  cash() { tone(990, 0.08, 'triangle', 0.2); setTimeout(() => tone(1480, 0.14, 'triangle', 0.2), 70); },
+  shoot() { noise(0.09, 0.5, 2600); tone(160, 0.08, 'square', 0.25, 60); },
+  punch() { noise(0.08, 0.35, 500); },
+  crash(strength) { noise(0.25, Math.min(0.6, 0.2 + strength * 0.4), 700); },
+  skid() { noise(0.12, 0.12, 1800); },
+  sirenBlip() { tone(740, 0.15, 'square', 0.1, 980); },
+  busted() { tone(330, 0.4, 'sawtooth', 0.2, 110); },
+  wasted() { tone(220, 0.7, 'sawtooth', 0.22, 55); },
+  mission() { [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.16, 'triangle', 0.22), i * 90)); },
+  fail() { [392, 330, 262].forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.2), i * 110)); },
+};
+
+// Engine hum follows speed (0..1); siren wails while police are near.
+function updateEngine(speed01, driving) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  engineGain.gain.setTargetAtTime(driving ? 0.05 + speed01 * 0.06 : 0, t, 0.1);
+  engineOsc.frequency.setTargetAtTime(48 + speed01 * 130, t, 0.08);
+}
+
+function updateSiren(on) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  sirenGain.gain.setTargetAtTime(on && !muted ? 0.035 : 0, t, 0.2);
+  if (on) sirenOsc.frequency.setTargetAtTime(740 + 260 * Math.sin(t * 4.4), t, 0.05);
+}
+
+// Generative dusk-drive loop: minor-key bass, hats, soft pad. Schedules ahead.
+const BASS = [55, 0, 55, 0, 65.4, 0, 49, 0, 55, 0, 55, 0, 82.4, 0, 73.4, 0];
+const CHORDS = [[220, 261.6, 329.6], [174.6, 220, 261.6], [196, 246.9, 293.7], [164.8, 196, 246.9]];
+function startMusic() {
+  ensureAudio();
+  if (!actx || musicTimer) return;
+  musicTimer = setInterval(() => {
+    if (muted || !actx) return;
+    const step = musicStep;
+    const bass = BASS[step % BASS.length];
+    if (bass) tone(bass, 0.22, 'triangle', 0.5);
+    if (step % 2 === 0) noise(0.03, 0.05, 6000);
+    if (step % 16 === 0) {
+      const chord = CHORDS[(step / 16 | 0) % CHORDS.length];
+      chord.forEach((f) => tone(f, 1.6, 'sine', 0.05));
+    }
+    musicStep += 1;
+  }, 150);
+}
+
+function stopMusic() {
+  if (musicTimer) {
+    clearInterval(musicTimer);
+    musicTimer = null;
+  }
+}
+
+
+// ---- city.js ----
+// NEONHARBOR — the city: roads, blocks, buildings, landmarks, spawn points.
+// The layout is deterministic for a seed. All collision queries live here.
+
+// Deterministic hash for window placement (shared with render).
+function hash2(x, y) {
+  const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Block columns (x intervals) and rows (y intervals) between the roads.
+const COLS = [[32, 272], [368, 656], [752, 1040], [1136, 1424], [1520, 1808], [1904, 2192]];
+const ROWS = [[32, 208], [304, 528], [624, 848], [944, 1168], [1264, 1488], [1584, 1744]];
+
+// Landmark blocks: [col, row] -> { name, label, kind }.
+const LANDMARKS = {
+  '2,2': { name: 'bank', label: 'Harbor Bank', kind: 'bank' },
+  '1,3': { name: 'bar', label: 'Lantern Bar', kind: 'bar' },
+  '4,4': { name: 'chop', label: 'Chop Shop', kind: 'chop' },
+  '3,1': { name: 'arms', label: 'Harbor Arms', kind: 'arms' },
+  '1,1': { name: 'med', label: 'Med Stop', kind: 'med' },
+  '5,2': { name: 'garage', label: 'Pit Stop Garage', kind: 'garage' },
+  '0,4': { name: 'loft', label: "Rook's Loft", kind: 'loft' },
+  '0,0': { name: 'depot', label: 'Taxi Depot', kind: 'depot' },
+};
+
+function buildCity(seed) {
+  const rng = mulberry32(seed);
+  const buildings = [];
+  const palms = [];
+  const parkedSpots = [];
+  const parks = [];
+  const lots = [];
+  const zones = [];
+
+  function addBuilding(x, y, w, h, name, label) {
+    const i = Math.floor(rng() * COLORS.building.length);
+    // Precompute the lit windows once: render draws them every frame.
+    const windows = [];
+    const cols = Math.max(1, Math.floor(w / 46));
+    const rows = Math.max(1, Math.floor(h / 46));
+    for (let cx = 0; cx < cols; cx += 1) {
+      for (let cy = 0; cy < rows; cy += 1) {
+        if (hash2(x + cx * 31, y + cy * 29) < 0.4) {
+          windows.push({
+            x: x + 16 + cx * 46,
+            y: y + 16 + cy * 46,
+            color: hash2(x + cx, y + cy) < 0.5 ? '#ffd76a' : '#9be8ff',
+          });
+        }
+      }
+    }
+    buildings.push({
+      x, y, w, h,
+      color: COLORS.building[i],
+      roof: COLORS.roof[i],
+      name: name || null,
+      label: label || null,
+      windows,
+    });
+    return buildings[buildings.length - 1];
+  }
+
+  for (let c = 0; c < COLS.length; c += 1) {
+    for (let r = 0; r < ROWS.length; r += 1) {
+      const [bx0, bx1] = COLS[c];
+      const [by0, by1] = ROWS[r];
+      const key = `${c},${r}`;
+      const mark = LANDMARKS[key];
+      if (mark) {
+        // Landmark: one big building with a door zone on its south side.
+        const b = addBuilding(bx0 + 14, by0 + 14, bx1 - bx0 - 28, by1 - by0 - 28, mark.name, mark.label);
+        const doorX = b.x + b.w / 2;
+        const doorY = b.y + b.h + 26;
+        zones.push({ name: mark.name, label: mark.label, x: doorX, y: doorY, r: 70, kind: mark.kind });
+        continue;
+      }
+      const roll = rng();
+      if (roll < 0.16) {
+        // Park: grass + palms.
+        parks.push({ x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 });
+        const n = rangeInt(rng, 3, 6);
+        for (let i = 0; i < n; i += 1) {
+          palms.push({ x: range(rng, bx0 + 20, bx1 - 20), y: range(rng, by0 + 20, by1 - 20) });
+        }
+      } else if (roll < 0.32) {
+        // Parking lot: flat asphalt with marked spots.
+        lots.push({ x: bx0, y: by0, w: bx1 - bx0, h: by1 - by0 });
+        const cols = Math.floor((bx1 - bx0) / 90);
+        const rows = Math.floor((by1 - by0) / 70);
+        for (let i = 0; i < cols; i += 1) {
+          for (let j = 0; j < rows; j += 1) {
+            if (chance(rng, 0.45)) {
+              parkedSpots.push({
+                x: bx0 + 45 + i * 90,
+                y: by0 + 35 + j * 70,
+                angle: Math.PI / 2,
+                type: pick(rng, ['sedan', 'sedan', 'van', 'taxi']),
+              });
+            }
+          }
+        }
+      } else {
+        // Buildings: one wide or two side by side.
+        const w = bx1 - bx0;
+        const h = by1 - by0;
+        if (w > 220 && chance(rng, 0.6)) {
+          addBuilding(bx0 + 16, by0 + 16, w / 2 - 26, h - 32);
+          addBuilding(bx0 + w / 2 + 10, by0 + 16, w / 2 - 26, h - 32);
+        } else {
+          addBuilding(bx0 + 18, by0 + 18, w - 36, h - 36);
+        }
+        if (chance(rng, 0.5)) palms.push({ x: bx0 + 14, y: by1 - 14 });
+      }
+    }
+  }
+
+  // The north lot holds the yellow Sunray for mission 2 (fixed spot).
+  const sunraySpot = { x: 896, y: 120, angle: Math.PI / 2, type: 'sport', color: '#f2c230', fixed: 'sunray' };
+  parkedSpots.push(sunraySpot);
+
+  // Marina: the dock on the east edge, over the water line.
+  zones.push({ name: 'marina', label: 'Marina', x: 2368, y: 896, r: 80, kind: 'marina' });
+  // The bank vault is held at the bank's door (the building itself is solid).
+  const bank = buildings.find((b) => b.name === 'bank');
+  if (bank) zones.push({ name: 'vault', label: 'Bank Vault', x: bank.x + bank.w / 2, y: bank.y + bank.h + 26, r: 60, kind: 'vault' });
+
+  // (No roadside parked cars: the 96 px roads fit two driving lanes, and a car
+  // parked at the curb would block the lane next to it. Lots hold the parked cars.)
+
+  const city = {
+    avenues: AVENUES,
+    streets: STREETS,
+    buildings,
+    palms,
+    parks,
+    lots,
+    zones,
+    parkedSpots,
+    sunraySpot,
+    playerStart: { x: 320, y: 1400 },
+  };
+
+  city.zone = function zone(name) {
+    return zones.find((z) => z.name === name) || null;
+  };
+
+  city.isWater = function isWater(x, y) {
+    return x >= WATER_X;
+  };
+
+  city.onRoad = function onRoad(x, y) {
+    for (let i = 0; i < AVENUES.length; i += 1) {
+      if (Math.abs(x - AVENUES[i]) <= ROAD_HALF + 6) return true;
+    }
+    for (let i = 0; i < STREETS.length; i += 1) {
+      if (Math.abs(y - STREETS[i]) <= ROAD_HALF + 6) return true;
+    }
+    return false;
+  };
+
+  // Nearest road centreline and signed offset: { axis: 'v'|'h', center, along }.
+  city.nearestRoad = function nearestRoad(x, y) {
+    let best = null;
+    for (let i = 0; i < AVENUES.length; i += 1) {
+      const d = Math.abs(x - AVENUES[i]);
+      if (!best || d < best.dist) best = { axis: 'v', center: AVENUES[i], along: y, dist: d };
+    }
+    for (let i = 0; i < STREETS.length; i += 1) {
+      const d = Math.abs(y - STREETS[i]);
+      if (!best || d < best.dist) best = { axis: 'h', center: STREETS[i], along: x, dist: d };
+    }
+    return best;
+  };
+
+  // Push a circle out of every building and the water; returns corrected {x, y}.
+  city.resolveCircle = function resolveCircle(x, y, r) {
+    for (let i = 0; i < buildings.length; i += 1) {
+      const b = buildings[i];
+      const cx = Math.max(b.x, Math.min(x, b.x + b.w));
+      const cy = Math.max(b.y, Math.min(y, b.y + b.h));
+      const dx = x - cx;
+      const dy = y - cy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < r * r) {
+        if (d2 > 0.01) {
+          const d = Math.sqrt(d2);
+          x = cx + (dx / d) * r;
+          y = cy + (dy / d) * r;
+        } else {
+          // Centre inside the building: push out along the smallest overlap.
+          const left = x - b.x + r;
+          const right = b.x + b.w - x + r;
+          const top = y - b.y + r;
+          const bottom = b.y + b.h - y + r;
+          const m = Math.min(left, right, top, bottom);
+          if (m === left) x = b.x - r;
+          else if (m === right) x = b.x + b.w + r;
+          else if (m === top) y = b.y - r;
+          else y = b.y + b.h + r;
+        }
+      }
+    }
+    if (x > WATER_X - r) x = WATER_X - r;
+    if (x < r) x = r;
+    if (y < r) y = r;
+    if (y > WORLD_H - r) y = WORLD_H - r;
+    return { x, y };
+  };
+
+  city.hitsBuilding = function hitsBuilding(x, y, r) {
+    for (let i = 0; i < buildings.length; i += 1) {
+      const b = buildings[i];
+      if (x + r > b.x && x - r < b.x + b.w && y + r > b.y && y - r < b.y + b.h) return b;
+    }
+    return null;
+  };
+
+  // A random point on a road at least minDist from (x, y).
+  city.roadPointNear = function roadPointNear(x, y, minDist) {
+    for (let tries = 0; tries < 24; tries += 1) {
+      let px;
+      let py;
+      if (rng() < 0.5) {
+        px = pick(rng, AVENUES);
+        py = range(rng, 80, WORLD_H - 80);
+      } else {
+        px = range(rng, 80, WATER_X - 80);
+        py = pick(rng, STREETS);
+      }
+      if (Math.hypot(px - x, py - y) >= minDist) return { x: px, y: py };
+    }
+    return { x: AVENUES[0], y: STREETS[0] };
+  };
+
+  // A random sidewalk point (just off a road) for pedestrians.
+  city.sidewalkPoint = function sidewalkPoint() {
+    if (rng() < 0.5) {
+      const av = pick(rng, AVENUES);
+      return { x: av + (rng() < 0.5 ? -1 : 1) * (ROAD_HALF + 16), y: range(rng, 80, WORLD_H - 80) };
+    }
+    const st = pick(rng, STREETS);
+    return { x: range(rng, 80, WATER_X - 80), y: st + (rng() < 0.5 ? -1 : 1) * (ROAD_HALF + 16) };
+  };
+
+  return city;
+}
+
+
+// ---- vehicles.js ----
+// Cars: physics, damage, entering and exiting. A car is a position, a heading and a
+// speed along that heading; steering bites harder at speed, the handbrake slides.
+
+function makeCar(type, x, y, angle, rng, opts) {
+  const def = CAR_TYPES[type];
+  const o = opts || {};
+  return {
+    type,
+    name: def.name,
+    x, y, angle,
+    speed: 0,
+    color: o.color || pick(rng, def.colors),
+    maxSpeed: def.maxSpeed * (o.speedMul || 1),
+    accel: def.accel,
+    grip: def.grip,
+    w: def.w,
+    l: def.l,
+    health: CAR.maxHealth,
+    driver: o.driver || null, // 'player' | 'npc' | null (parked)
+    fixed: o.fixed || null, // 'sunray' | 'target' | null
+    steer: 0,
+    skid: 0,
+    dead: false,
+  };
+}
+
+// Drive one car for dt. drive = { throttle: -1..1, steer: -1..1, handbrake: bool }.
+// Returns { hitBuilding, hitSpeed } for crash feedback.
+function stepCar(car, drive, dt, city) {
+  const def = CAR_TYPES[car.type];
+  const speedBefore = car.speed;
+  if (drive.throttle > 0) {
+    car.speed += car.accel * drive.throttle * dt;
+  } else if (drive.throttle < 0) {
+    if (car.speed > 8) car.speed += CAR.brake * drive.throttle * dt;
+    else car.speed += car.accel * 0.6 * drive.throttle * dt;
+  } else {
+    car.speed -= Math.sign(car.speed) * 140 * dt;
+    if (Math.abs(car.speed) < 6) car.speed = 0;
+  }
+  if (car.speed > car.maxSpeed) car.speed = car.maxSpeed;
+  if (car.speed < -CAR.reverseMax) car.speed = -CAR.reverseMax;
+  const speedFactor = Math.min(1, Math.abs(car.speed) / 180);
+  const turn = CAR.turnRate * car.grip * speedFactor * (drive.handbrake ? CAR.handbrakeTurn : 1);
+  car.angle += drive.steer * turn * Math.sign(car.speed || 1) * dt;
+  car.steer = drive.steer;
+  const nx = car.x + Math.cos(car.angle) * car.speed * dt;
+  const ny = car.y + Math.sin(car.angle) * car.speed * dt;
+  const r = car.l * 0.42;
+  const resolved = city.resolveCircle(nx, ny, r);
+  let hitBuilding = false;
+  let hitSpeed = 0;
+  if (resolved.x !== nx || resolved.y !== ny) {
+    hitBuilding = true;
+    hitSpeed = Math.abs(speedBefore);
+    // A hard hit costs speed and health; a scrape just slides.
+    if (hitSpeed > 140) {
+      car.health -= Math.min(30, (hitSpeed - 140) * 0.08);
+      car.speed *= 0.35;
+    } else {
+      car.speed *= 0.7;
+    }
+    if (car.health <= 0) {
+      car.health = 0;
+      car.speed = 0;
+      car.dead = true;
+    }
+  }
+  car.x = resolved.x;
+  car.y = resolved.y;
+  car.skid = drive.handbrake && Math.abs(car.speed) > 120 ? 1 : Math.max(0, car.skid - dt * 3);
+  return { hitBuilding, hitSpeed };
+}
+
+// Oriented overlap between two cars: project the offset into each car's own
+// frame (along = length axis, side = width axis). Two cars passing in opposite
+// lanes (52 px apart) do not touch; a rear-end or T-bone does.
+function collideCars(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > (a.l + b.l) * 0.6 || dist < 0.01) return 0;
+  const alongMax = ((a.l + b.l) / 2) * 0.72;
+  const sideMax = (a.w + b.w) / 2;
+  const frames = [
+    { angle: a.angle, ox: dx, oy: dy },
+    { angle: b.angle, ox: -dx, oy: -dy },
+  ];
+  let overlap = false;
+  let push = 0;
+  for (let i = 0; i < frames.length; i += 1) {
+    const f = frames[i];
+    const along = Math.abs(f.ox * Math.cos(f.angle) + f.oy * Math.sin(f.angle));
+    const side = Math.abs(-f.ox * Math.sin(f.angle) + f.oy * Math.cos(f.angle));
+    if (along < alongMax && side < sideMax) {
+      overlap = true;
+      push = Math.max(push, (alongMax - along) / 2);
+    }
+  }
+  if (!overlap) return 0;
+  const nx = dx / dist;
+  const ny = dy / dist;
+  a.x -= nx * push;
+  a.y -= ny * push;
+  b.x += nx * push;
+  b.y += ny * push;
+  const impact = Math.abs(a.speed - b.speed);
+  const dmg = Math.min(18, impact * 0.05);
+  if (impact > 90) {
+    a.health = Math.max(0, a.health - dmg);
+    b.health = Math.max(0, b.health - dmg);
+    if (a.health <= 0) { a.dead = true; a.speed = 0; }
+    if (b.health <= 0) { b.dead = true; b.speed = 0; }
+    const avg = (a.speed + b.speed) / 2;
+    a.speed = avg * 0.5;
+    b.speed = avg * 0.5;
+  }
+  return impact;
+}
+
+function nearestCar(cars, x, y, maxDist) {
+  let best = null;
+  let bestD = maxDist;
+  for (let i = 0; i < cars.length; i += 1) {
+    const c = cars[i];
+    if (c.dead) continue;
+    const d = Math.hypot(c.x - x, c.y - y);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
+
+// ---- player.js ----
+// Rook on foot: movement, facing, health, cash and ammo.
+
+function makePlayer(x, y) {
+  return {
+    x, y,
+    angle: -Math.PI / 2,
+    health: PLAYER.maxHealth,
+    cash: ECONOMY.startCash,
+    ammo: COMBAT.pistolAmmoStart,
+    hasPistol: true,
+    car: null, // the car being driven, or null on foot
+    moving: false,
+    punchTimer: 0,
+    shootTimer: 0,
+    dead: false,
+    busted: false,
+  };
+}
+
+// Walk for dt along move {x, y} (unit-ish). Returns true when actually moving.
+function stepPlayerOnFoot(player, move, dt, city) {
+  const len = Math.hypot(move.x, move.y);
+  player.moving = len > 0.05;
+  if (!player.moving) return false;
+  const nx = player.x + (move.x / Math.max(1, len)) * PLAYER.walkSpeed * dt;
+  const ny = player.y + (move.y / Math.max(1, len)) * PLAYER.walkSpeed * dt;
+  const resolved = city.resolveCircle(nx, ny, PLAYER.radius);
+  player.x = resolved.x;
+  player.y = resolved.y;
+  player.angle = Math.atan2(move.y, move.x);
+  return true;
+}
+
+function damagePlayer(player, amount) {
+  if (player.dead) return;
+  player.health -= amount;
+  if (player.health <= 0) {
+    player.health = 0;
+    player.dead = true;
+  }
+}
+
+function healPlayer(player, amount) {
+  player.health = Math.min(PLAYER.maxHealth, player.health + amount);
+}
+
+function addCash(player, amount) {
+  player.cash += amount;
+  return player.cash;
+}
+
+
+// ---- traffic.js ----
+// Traffic: NPC cars that follow the road grid, keep their lane, slow for the car
+// ahead and turn at intersections. They keep the city feeling alive around the player.
+
+const LANE = 26;
+
+function makeTrafficCar(city, rng, nearX, nearY) {
+  const vertical = chance(rng, 0.5);
+  let x;
+  let y;
+  let angle;
+  let axis;
+  let dir;
+  if (vertical) {
+    const av = pick(rng, AVENUES);
+    dir = chance(rng, 0.5) ? 1 : -1;
+    x = av + (dir > 0 ? LANE : -LANE);
+    y = range(rng, 100, 1700);
+    angle = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    axis = 'v';
+  } else {
+    const st = pick(rng, STREETS);
+    dir = chance(rng, 0.5) ? 1 : -1;
+    x = range(rng, 100, 2300);
+    y = st + (dir > 0 ? LANE : -LANE);
+    angle = dir > 0 ? 0 : Math.PI;
+    axis = 'h';
+  }
+  const type = pick(rng, ['sedan', 'sedan', 'sedan', 'van', 'taxi', 'truck']);
+  const car = makeCar(type, x, y, angle, rng, { driver: 'npc' });
+  car.maxSpeed = range(rng, 130, 185);
+  return { car, axis, dir, cruise: car.maxSpeed };
+}
+
+function angleDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+// Drive one traffic car for dt. cars = all cars (for the car-ahead check).
+function stepTrafficCar(t, dt, city, rng, cars) {
+  const car = t.car;
+  if (car.dead) return;
+  // Desired heading: along the road, pulled back onto the lane.
+  let desired;
+  let lateral = 0;
+  if (t.axis === 'v') {
+    const av = nearestLine(AVENUES, car.x);
+    lateral = car.x - (av + (t.dir > 0 ? LANE : -LANE));
+    desired = t.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  } else {
+    const st = nearestLine(STREETS, car.y);
+    lateral = car.y - (st + (t.dir > 0 ? LANE : -LANE));
+    desired = t.dir > 0 ? 0 : Math.PI;
+  }
+  desired += Math.max(-0.5, Math.min(0.5, -lateral * 0.012));
+  const steer = Math.max(-1, Math.min(1, angleDiff(desired, car.angle) * 2.2));
+
+  // Slow for the car ahead on the same road.
+  let throttle = 1;
+  const ahead = carAhead(t, cars);
+  if (ahead < 150) throttle = ahead < 70 ? -0.6 : 0.25;
+  if (car.speed > t.cruise) throttle = 0;
+
+  const res = stepCar(car, { throttle, steer, handbrake: false }, dt, city);
+  if (res.hitBuilding) {
+    // Bounced off a building (should be rare): turn around.
+    t.dir *= -1;
+    car.angle += Math.PI;
+    car.speed = Math.abs(car.speed) * 0.5;
+  }
+
+  // At an intersection, sometimes turn onto the crossing road.
+  if (atIntersection(car)) {
+    if (chance(rng, dt * 0.45)) {
+      if (t.axis === 'v') {
+        t.axis = 'h';
+        t.dir = chance(rng, 0.5) ? 1 : -1;
+        car.y = nearestLine(STREETS, car.y);
+      } else {
+        t.axis = 'v';
+        t.dir = chance(rng, 0.5) ? 1 : -1;
+        car.x = nearestLine(AVENUES, car.x);
+      }
+    }
+  }
+}
+
+function nearestLine(lines, value) {
+  let best = lines[0];
+  let bestD = Math.abs(value - lines[0]);
+  for (let i = 1; i < lines.length; i += 1) {
+    const d = Math.abs(value - lines[i]);
+    if (d < bestD) {
+      bestD = d;
+      best = lines[i];
+    }
+  }
+  return best;
+}
+
+function atIntersection(car) {
+  let nearV = false;
+  let nearH = false;
+  for (let i = 0; i < AVENUES.length; i += 1) {
+    if (Math.abs(car.x - AVENUES[i]) < ROAD_HALF) nearV = true;
+  }
+  for (let i = 0; i < STREETS.length; i += 1) {
+    if (Math.abs(car.y - STREETS[i]) < ROAD_HALF) nearH = true;
+  }
+  return nearV && nearH;
+}
+
+// Distance to the nearest car ahead in the same lane, or Infinity.
+function carAhead(t, cars) {
+  const car = t.car;
+  const fx = Math.cos(car.angle);
+  const fy = Math.sin(car.angle);
+  let best = Infinity;
+  for (let i = 0; i < cars.length; i += 1) {
+    const o = cars[i];
+    if (o === car || o.dead) continue;
+    const dx = o.x - car.x;
+    const dy = o.y - car.y;
+    const along = dx * fx + dy * fy;
+    const side = Math.abs(dx * -fy + dy * fx);
+    if (along > 0 && along < best && side < 28) best = along;
+  }
+  return best;
+}
+
+
+// ---- pedestrians.js ----
+// Pedestrians: they walk the sidewalks, turn at intersections, and run from danger.
+// Getting run over knocks one down and earns the player wanted heat.
+
+const PED_COLORS = ['#e8e0d0', '#d0d8e8', '#e8c8c0', '#c8e0c8', '#e0d0a8', '#c8c8d8', '#f0e8d8'];
+
+function makePed(city, rng, x, y) {
+  const p = city.sidewalkPoint();
+  return {
+    x: x !== undefined ? x : p.x,
+    y: y !== undefined ? y : p.y,
+    angle: rng() * Math.PI * 2,
+    speed: range(rng, 55, 95),
+    color: pick(rng, PED_COLORS),
+    state: 'walk', // walk | flee | down
+    timer: 0,
+    axis: chance(rng, 0.5) ? 'v' : 'h',
+    dir: chance(rng, 0.5) ? 1 : -1,
+    fleeX: 0,
+    fleeY: 0,
+  };
+}
+
+function stepPed(ped, dt, city, rng, dangers) {
+  if (ped.state === 'down') {
+    ped.timer -= dt;
+    if (ped.timer <= 0) {
+      ped.state = 'flee';
+      ped.timer = 2;
+      ped.fleeX = ped.x + range(rng, -1, 1);
+      ped.fleeY = ped.y + range(rng, -1, 1);
+    }
+    return;
+  }
+  // Danger nearby? Run away from it.
+  for (let i = 0; i < dangers.length; i += 1) {
+    const d = dangers[i];
+    const dist = Math.hypot(ped.x - d.x, ped.y - d.y);
+    if (dist < d.r) {
+      ped.state = 'flee';
+      ped.timer = 1.5 + rng() * 1.5;
+      ped.fleeX = ped.x - d.x;
+      ped.fleeY = ped.y - d.y;
+      break;
+    }
+  }
+  if (ped.state === 'flee') {
+    ped.timer -= dt;
+    const len = Math.hypot(ped.fleeX, ped.fleeY) || 1;
+    ped.angle = Math.atan2(ped.fleeY / len, ped.fleeX / len);
+    const nx = ped.x + Math.cos(ped.angle) * 290 * dt;
+    const ny = ped.y + Math.sin(ped.angle) * 290 * dt;
+    const resolved = city.resolveCircle(nx, ny, 12);
+    ped.x = resolved.x;
+    ped.y = resolved.y;
+    if (ped.timer <= 0) ped.state = 'walk';
+    return;
+  }
+  // Walk along the sidewalk: keep the lane, turn at intersections.
+  const speed = ped.speed;
+  let desired;
+  if (ped.axis === 'v') {
+    desired = ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    const av = nearestRoadLine(city.avenues, ped.x);
+    const laneX = av + (ped.dir > 0 ? ROAD_HALF + 16 : -(ROAD_HALF + 16));
+    ped.x += Math.max(-1, Math.min(1, (laneX - ped.x) * 0.08));
+  } else {
+    desired = ped.dir > 0 ? 0 : Math.PI;
+    const st = nearestRoadLine(city.streets, ped.y);
+    const laneY = st + (ped.dir > 0 ? ROAD_HALF + 16 : -(ROAD_HALF + 16));
+    ped.y += Math.max(-1, Math.min(1, (laneY - ped.y) * 0.08));
+  }
+  ped.angle = desired;
+  ped.x += Math.cos(desired) * speed * dt;
+  ped.y += Math.sin(desired) * speed * dt;
+  if (ped.x < 30 || ped.x > WORLD_W - 30 || ped.y < 30 || ped.y > WORLD_H - 30) {
+    ped.dir *= -1;
+    ped.x = Math.max(30, Math.min(WORLD_W - 30, ped.x));
+    ped.y = Math.max(30, Math.min(WORLD_H - 30, ped.y));
+  }
+  // At an intersection, sometimes switch to the crossing road.
+  if (onCrossing(ped, city) && chance(rng, dt * 0.25)) {
+    ped.axis = ped.axis === 'v' ? 'h' : 'v';
+    ped.dir = chance(rng, 0.5) ? 1 : -1;
+  }
+}
+
+function nearestRoadLine(lines, value) {
+  let best = lines[0];
+  let bestD = Math.abs(value - lines[0]);
+  for (let i = 1; i < lines.length; i += 1) {
+    const d = Math.abs(value - lines[i]);
+    if (d < bestD) {
+      bestD = d;
+      best = lines[i];
+    }
+  }
+  return best;
+}
+
+function onCrossing(ped, city) {
+  let nearV = false;
+  let nearH = false;
+  for (let i = 0; i < city.avenues.length; i += 1) {
+    if (Math.abs(ped.x - city.avenues[i]) < ROAD_HALF) nearV = true;
+  }
+  for (let i = 0; i < city.streets.length; i += 1) {
+    if (Math.abs(ped.y - city.streets[i]) < ROAD_HALF) nearH = true;
+  }
+  return nearV && nearH;
+}
+
+// Knock a pedestrian down (run over). Returns true when it was a fresh hit.
+function knockDown(ped, rng) {
+  if (ped.state === 'down') return false;
+  ped.state = 'down';
+  ped.timer = 2.5 + rng() * 1.5;
+  return true;
+}
+
+
+// ---- police.js ----
+// The wanted system: heat, stars, foot cops who chase and arrest, police cars
+// that chase and ram. Heat decays when no cop can see the player.
+
+function makeWanted() {
+  return { heat: 0, stars: 0 };
+}
+
+function addHeat(wanted, amount) {
+  wanted.heat = Math.min(WANTED.maxHeat, wanted.heat + amount);
+  wanted.stars = Math.min(5, Math.ceil(wanted.heat / WANTED.perStar));
+}
+
+function clearWanted(wanted) {
+  wanted.heat = 0;
+  wanted.stars = 0;
+}
+
+// Decay only while unseen; returns whether any cop currently sees the player.
+function updateWanted(wanted, dt, seen) {
+  if (!seen && wanted.heat > 0) {
+    wanted.heat = Math.max(0, wanted.heat - WANTED.decayPerSec * dt);
+    wanted.stars = Math.min(5, Math.ceil(wanted.heat / WANTED.perStar));
+    if (wanted.heat <= 0) wanted.stars = 0;
+  }
+}
+
+function makeFootCop(x, y) {
+  return { x, y, angle: 0, arrest: 0, speed: 235 };
+}
+
+function makePoliceCar(city, rng, x, y) {
+  const car = makeCar('police', x, y, 0, rng, { driver: 'npc' });
+  car.maxSpeed = 490;
+  return { car, droppedCop: false };
+}
+
+// A foot cop runs at the player; standing on the player while they are on foot
+// and slow builds the arrest timer. Returns 'busted' when the arrest completes.
+function stepFootCop(cop, player, dt, city) {
+  const dx = player.x - cop.x;
+  const dy = player.y - cop.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > 1) {
+    cop.angle = Math.atan2(dy, dx);
+    const nx = cop.x + Math.cos(cop.angle) * cop.speed * dt;
+    const ny = cop.y + Math.sin(cop.angle) * cop.speed * dt;
+    const resolved = city.resolveCircle(nx, ny, 13);
+    cop.x = resolved.x;
+    cop.y = resolved.y;
+  }
+  if (dist < 46 && !player.car) {
+    cop.arrest += dt;
+    if (cop.arrest > 1.2) return 'busted';
+  } else {
+    cop.arrest = Math.max(0, cop.arrest - dt * 2);
+  }
+  return null;
+}
+
+function angleDiffP(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+// A police car steers at the player (with a little prediction) and rams.
+function stepPoliceCar(pc, player, dt, city, rng) {
+  const car = pc.car;
+  if (car.dead) return null;
+  const tx = player.car ? player.car.x : player.x;
+  const ty = player.car ? player.car.y : player.y;
+  const pvx = player.car ? Math.cos(player.car.angle) * player.car.speed : 0;
+  const pvy = player.car ? Math.sin(player.car.angle) * player.car.speed : 0;
+  const aimX = tx + pvx * 0.4;
+  const aimY = ty + pvy * 0.4;
+  const desired = Math.atan2(aimY - car.y, aimX - car.x);
+  const steer = Math.max(-1, Math.min(1, angleDiffP(desired, car.angle) * 2.5));
+  const dist = Math.hypot(tx - car.x, ty - car.y);
+  const throttle = dist > 60 ? 1 : 0.3;
+  const res = stepCar(car, { throttle, steer, handbrake: false }, dt, city);
+  if (res.hitBuilding) {
+    car.angle += Math.PI * 0.5 * (rng() < 0.5 ? 1 : -1);
+    car.speed *= 0.5;
+  }
+  // Close to a player on foot: the officer gets out and chases on foot.
+  if (!player.car && dist < 150 && !pc.droppedCop) {
+    pc.droppedCop = true;
+    car.speed = 0;
+    return { dropCop: true, x: car.x, y: car.y };
+  }
+  return null;
+}
+
+// How many foot cops / police cars the stars call for.
+function wantedCounts(stars, playerInCar) {
+  return {
+    foot: playerInCar ? Math.min(2, stars) : Math.min(WANTED.maxFootCops, stars),
+    cars: stars >= 2 ? Math.min(WANTED.maxPoliceCars, stars - 1) : 0,
+  };
+}
+
+
+// ---- combat.js ----
+// Combat: the player's pistol and fists, bullets, and armed guards who shoot back.
+
+function makeBullets() {
+  return [];
+}
+
+function fireBullet(bullets, x, y, angle, fromPlayer) {
+  bullets.push({
+    x, y,
+    vx: Math.cos(angle) * COMBAT.bulletSpeed,
+    vy: Math.sin(angle) * COMBAT.bulletSpeed,
+    life: COMBAT.bulletRange / COMBAT.bulletSpeed,
+    fromPlayer,
+  });
+}
+
+// Move bullets; returns hits: { x, y, fromPlayer, target } where target is a guard,
+// a cop, a ped, a car or 'player'. Guards/cops/cars are resolved by the caller via
+// the check functions it passes in.
+function stepBullets(bullets, dt, city, hitTest) {
+  const hits = [];
+  for (let i = bullets.length - 1; i >= 0; i -= 1) {
+    const b = bullets[i];
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+    let dead = b.life <= 0;
+    if (!dead && city.hitsBuilding(b.x, b.y, 2)) {
+      hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target: 'wall' });
+      dead = true;
+    }
+    if (!dead && hitTest) {
+      const target = hitTest(b);
+      if (target) {
+        hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target });
+        dead = true;
+      }
+    }
+    if (dead) bullets.splice(i, 1);
+  }
+  return hits;
+}
+
+function makeGuard(x, y, rng) {
+  return {
+    x, y,
+    angle: rng() * Math.PI * 2,
+    health: COMBAT.guardHealth,
+    shootTimer: 0.5 + rng(),
+    dead: false,
+    kind: 'guard',
+  };
+}
+
+// A guard stands its ground and shoots at the player when in range and line of
+// sight (buildings block). Returns a bullet to fire, or null.
+function stepGuard(guard, player, dt, city, rng) {
+  if (guard.dead) return null;
+  guard.shootTimer -= dt;
+  const dx = player.x - guard.x;
+  const dy = player.y - guard.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist > COMBAT.guardRange) return null;
+  guard.angle = Math.atan2(dy, dx);
+  if (guard.shootTimer > 0) return null;
+  guard.shootTimer = COMBAT.guardInterval * (0.8 + rng() * 0.5);
+  // Line of sight: sample along the shot for a building.
+  for (let t = 0; t < dist; t += 24) {
+    if (city.hitsBuilding(guard.x + (dx / dist) * t, guard.y + (dy / dist) * t, 2)) return null;
+  }
+  const spread = (rng() - 0.5) * 0.35 * Math.min(1, dist / 300);
+  return {
+    x: guard.x + Math.cos(guard.angle) * 20,
+    y: guard.y + Math.sin(guard.angle) * 20,
+    angle: guard.angle + spread,
+    fromPlayer: false,
+  };
+}
+
+function damageGuard(guard, amount) {
+  guard.health -= amount;
+  if (guard.health <= 0) {
+    guard.health = 0;
+    guard.dead = true;
+  }
+}
+
+
+// ---- missions.js ----
+// Missions: the 6-story arc plus repeatable side jobs. A mission is a list of steps;
+// updateMission advances them from the world's live state and reports events.
+
+function makeMissionState() {
+  return {
+    index: 0, // next story mission to start
+    active: null, // running mission instance, or null
+    side: null, // running side job, or null
+    completed: [], // mission ids finished
+    storyDone: false,
+  };
+}
+
+function currentMissionDef(state) {
+  return state.index < MISSIONS.length ? MISSIONS[state.index] : null;
+}
+
+function startMission(state, def, world) {
+  const inst = {
+    def,
+    step: 0,
+    timer: 0,
+    spotted: 0,
+    holdProgress: 0,
+    lostTimer: 0,
+    targetCar: null,
+    started: world.time,
+  };
+  // Step-specific setup.
+  const first = def.steps[0];
+  if (first.type === 'follow') {
+    inst.targetCar = world.spawnTargetCar();
+  }
+  if (first.type === 'steal') {
+    world.ensureSunray();
+  }
+  if (def.id === 'heist') {
+    world.spawnBankGuards();
+  }
+  state.active = inst;
+  return inst;
+}
+
+function failMission(state, world, reason) {
+  if (!state.active) return;
+  world.banner(reason || 'Mission failed', 'Try again — the job is still open.', 3);
+  state.active = null;
+}
+
+function completeMission(state, world) {
+  const inst = state.active;
+  if (!inst) return;
+  state.completed.push(inst.def.id);
+  state.index += 1;
+  state.active = null;
+  if (state.index >= MISSIONS.length) state.storyDone = true;
+  world.player.cash += inst.def.reward;
+  world.totalEarned += inst.def.reward;
+  world.banner('Job done — $' + inst.def.reward, state.storyDone ? 'The harbor is yours, Rook.' : nextBrief(state), 3.5);
+  world.saveGame();
+}
+
+function nextBrief(state) {
+  const def = currentMissionDef(state);
+  return def ? 'Next: ' + def.name + ' — ' + def.giver : '';
+}
+
+function stepZone(world, name) {
+  return world.city.zone(name);
+}
+
+function distTo(player, zone) {
+  return Math.hypot(player.x - zone.x, player.y - zone.y);
+}
+
+// Advance the active mission one step. Returns 'step' | 'complete' | 'failed' | null.
+function updateMission(state, world, dt) {
+  const inst = state.active;
+  if (!inst) return null;
+  const step = inst.def.steps[inst.step];
+  const player = world.player;
+
+  if (step.time) {
+    if (inst.timer <= 0) inst.timer = step.time;
+    inst.timer -= dt;
+    if (inst.timer <= 0) {
+      failMission(state, world, 'Out of time');
+      return 'failed';
+    }
+  }
+  if (step.startWanted && !inst.wantedSet) {
+    inst.wantedSet = true;
+    world.addHeat(step.startWanted);
+  }
+
+  switch (step.type) {
+    case 'goto': {
+      const zone = stepZone(world, step.zone);
+      if (zone && distTo(player, zone) < zone.r) return advance(state, world);
+      break;
+    }
+    case 'pickup': {
+      const zone = stepZone(world, step.zone);
+      if (zone && distTo(player, zone) < zone.r) {
+        if (step.needsCar && !player.car) break;
+        return advance(state, world);
+      }
+      break;
+    }
+    case 'steal': {
+      if (player.car && player.car.fixed === step.car) return advance(state, world);
+      break;
+    }
+    case 'deliverCar': {
+      const zone = stepZone(world, step.zone);
+      if (zone && player.car && player.car.fixed === 'sunray' && distTo(player, zone) < zone.r) {
+        return advance(state, world);
+      }
+      break;
+    }
+    case 'follow': {
+      const target = inst.targetCar;
+      if (!target || target.dead) {
+        failMission(state, world, 'You lost the target');
+        return 'failed';
+      }
+      const d = Math.hypot(target.x - player.x, target.y - player.y);
+      if (d > 520) {
+        inst.lostTimer += dt;
+        if (inst.lostTimer > 3) {
+          failMission(state, world, 'You lost the target');
+          return 'failed';
+        }
+      } else {
+        inst.lostTimer = 0;
+      }
+      if (d < 90) {
+        inst.spotted += dt;
+        if (inst.spotted > 2.5) {
+          failMission(state, world, 'Spotted! The courier burned you');
+          return 'failed';
+        }
+      } else {
+        inst.spotted = Math.max(0, inst.spotted - dt);
+      }
+      if (d >= 120 && d <= 380) inst.followProgress = (inst.followProgress || 0) + dt;
+      const need = step.duration || 45;
+      if ((inst.followProgress || 0) >= need) return advance(state, world);
+      break;
+    }
+    case 'loseWanted': {
+      if (world.wanted.stars === 0) return advance(state, world);
+      break;
+    }
+    case 'deliver': {
+      const zone = stepZone(world, step.zone);
+      if (zone && distTo(player, zone) < zone.r) return advance(state, world);
+      break;
+    }
+    case 'hold': {
+      const zone = stepZone(world, step.zone);
+      if (zone && distTo(player, zone) < zone.r) {
+        inst.holdProgress += dt;
+        if (inst.holdProgress >= (step.hold || 6)) return advance(state, world);
+      } else {
+        inst.holdProgress = Math.max(0, inst.holdProgress - dt * 2);
+      }
+      break;
+    }
+    case 'escape': {
+      const zone = stepZone(world, step.zone);
+      if (world.wanted.stars === 0 && zone && distTo(player, zone) < zone.r) {
+        return advance(state, world);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return null;
+}
+
+function advance(state, world) {
+  const inst = state.active;
+  inst.step += 1;
+  inst.timer = 0;
+  inst.spotted = 0;
+  inst.holdProgress = 0;
+  inst.followProgress = 0;
+  inst.lostTimer = 0;
+  if (inst.step >= inst.def.steps.length) {
+    completeMission(state, world);
+    return 'complete';
+  }
+  const next = inst.def.steps[inst.step];
+  if (next.type === 'follow') inst.targetCar = world.spawnTargetCar();
+  if (next.type === 'steal') world.ensureSunray();
+  world.banner(inst.def.name, next.label, 3);
+  return 'step';
+}
+
+// ---- Side jobs: taxi fares and parcel deliveries. ----
+
+function maybeOfferTaxi(state, world, rng) {
+  if (state.active || state.side || !world.player.car) return;
+  if (world.wanted.stars > 0) return; // No fares while the cops are on you.
+  if (rng() > 0.02) return;
+  const spot = world.city.sidewalkPoint();
+  const dest = world.city.zone('marina');
+  state.side = {
+    kind: 'taxi',
+    phase: 'pickup',
+    x: spot.x,
+    y: spot.y,
+    destX: dest.x,
+    destY: dest.y,
+    timer: 90,
+    fare: ECONOMY.taxiBase,
+  };
+  world.banner('Taxi fare', 'A fare is waving you down — pick them up.', 2.5);
+}
+
+function updateSideJob(state, world, dt) {
+  const job = state.side;
+  if (!job) return null;
+  const player = world.player;
+  job.timer -= dt;
+  if (job.timer <= 0) {
+    state.side = null;
+    world.banner('Fare lost', 'They found another cab.', 2);
+    return 'failed';
+  }
+  if (job.phase === 'pickup') {
+    const d = Math.hypot(player.x - job.x, player.y - job.y);
+    if (d < 55 && player.car) {
+      job.phase = 'drop';
+      job.timer = 90;
+      world.banner('Fare aboard', 'Take them to the Marina.', 2);
+    }
+  } else {
+    const d = Math.hypot(player.x - job.destX, player.y - job.destY);
+    if (d < 80) {
+      const pay = job.fare + Math.round(ECONOMY.taxiPerPx * 900);
+      player.cash += pay;
+      world.totalEarned += pay;
+      state.side = null;
+      world.banner('Fare paid — $' + pay, 'Nice driving.', 2.5);
+      return 'complete';
+    }
+  }
+  return null;
+}
+
+
+// ---- particles.js ----
+// Particles, skid marks and floating text. Pure state; render.js draws them.
+function makeParticles() {
+  return { list: [], texts: [], skids: [] };
+}
+
+function burst(p, x, y, opts) {
+  const o = opts || {};
+  const n = o.n || 14;
+  const color = o.color || '#ffd76a';
+  const speed = o.speed || 260;
+  const life = o.life || 0.6;
+  const size = o.size || 4;
+  for (let i = 0; i < n; i += 1) {
+    const a = Math.random() * Math.PI * 2;
+    const v = speed * (0.3 + Math.random() * 0.7);
+    p.list.push({
+      x, y,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v,
+      life: life * (0.6 + Math.random() * 0.6),
+      maxLife: life,
+      size: size * (0.6 + Math.random() * 0.8),
+      color,
+    });
+  }
+  if (p.list.length > 400) p.list.splice(0, p.list.length - 400);
+}
+
+function smoke(p, x, y) {
+  p.list.push({
+    x, y,
+    vx: (Math.random() - 0.5) * 30,
+    vy: -30 - Math.random() * 30,
+    life: 0.9,
+    maxLife: 0.9,
+    size: 9,
+    color: '#8a8f96',
+  });
+}
+
+function addText(p, x, y, text, color) {
+  p.texts.push({ x, y, text, color: color || '#ffffff', life: 1.1 });
+  if (p.texts.length > 24) p.texts.shift();
+}
+
+function addSkid(p, x1, y1, x2, y2) {
+  p.skids.push({ x1, y1, x2, y2, life: 6 });
+  if (p.skids.length > 300) p.skids.shift();
+}
+
+function stepParticles(p, dt) {
+  for (let i = p.list.length - 1; i >= 0; i -= 1) {
+    const pt = p.list[i];
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
+    pt.vx *= 0.98;
+    pt.vy *= 0.98;
+    pt.life -= dt;
+    if (pt.life <= 0) p.list.splice(i, 1);
+  }
+  for (let i = p.texts.length - 1; i >= 0; i -= 1) {
+    const t = p.texts[i];
+    t.y -= 34 * dt;
+    t.life -= dt;
+    if (t.life <= 0) p.texts.splice(i, 1);
+  }
+  for (let i = p.skids.length - 1; i >= 0; i -= 1) {
+    p.skids[i].life -= dt;
+    if (p.skids[i].life <= 0) p.skids.splice(i, 1);
+  }
+}
+
+
+// ---- save.js ----
+// Save / continue in localStorage. Guarded so Node (logic tests) stays inert.
+const KEY = 'neonharbor.save.v1';
+
+function hasSave() {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(KEY) !== null;
+  } catch (err) {
+    return false;
+  }
+}
+
+function loadSave() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeSave(save) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(KEY, JSON.stringify(save));
+  } catch (err) {
+    // Storage full or unavailable: the run continues without a save.
+  }
+}
+
+function clearSave() {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(KEY);
+  } catch (err) {
+    // Ignore.
+  }
+}
+
+function bestScore() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem('neonharbor.best.v1');
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function writeBest(best) {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem('neonharbor.best.v1', JSON.stringify(best));
+  } catch (err) {
+    // Ignore.
+  }
+}
+
+
+// ---- render.js ----
+// NEONHARBOR — canvas rendering: the city, cars, people, particles, dusk light
+// and the minimap. Pure drawing from world state; no game logic here.
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function renderWorld(ctx, world, view) {
+  const { w, h } = view;
+  const city = world.city;
+  const time = world.time;
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  // Camera: centre on the player, with screen shake.
+  const camX = (world.camX || world.player.x) + (view.shakeX || 0);
+  const camY = (world.camY || world.player.y) + (view.shakeY || 0);
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(view.zoom || 1, view.zoom || 1);
+  ctx.translate(-camX, -camY);
+
+  // Ground: grass (visible rect only).
+  const zoom = view.zoom || 1;
+  const halfW = w / 2 / zoom;
+  const halfH = h / 2 / zoom;
+  ctx.fillStyle = COLORS.grass;
+  ctx.fillRect(camX - halfW - 20, camY - halfH - 20, halfW * 2 + 40, halfH * 2 + 40);
+  // Beach strip and water on the east edge.
+  ctx.fillStyle = COLORS.sand;
+  ctx.fillRect(WATER_X - 26, 0, 26, WORLD_H);
+  ctx.fillStyle = COLORS.water;
+  ctx.fillRect(WATER_X, 0, WORLD_W - WATER_X, WORLD_H);
+  ctx.fillStyle = '#7ee8fa';
+  ctx.fillRect(WATER_X - 4, 0, 4, WORLD_H);
+
+  // Roads (culled to the camera view).
+  const viewLeft = camX - halfW - 80;
+  const viewRight = camX + halfW + 80;
+  const viewTop = camY - halfH - 80;
+  const viewBottom = camY + halfH + 80;
+  ctx.fillStyle = COLORS.road;
+  for (let i = 0; i < city.avenues.length; i += 1) {
+    const ax = city.avenues[i];
+    if (ax + ROAD_HALF < viewLeft || ax - ROAD_HALF > viewRight) continue;
+    ctx.fillRect(ax - ROAD_HALF, Math.max(0, viewTop), ROAD_HALF * 2, Math.min(WORLD_H, viewBottom) - Math.max(0, viewTop));
+  }
+  for (let i = 0; i < city.streets.length; i += 1) {
+    const sy = city.streets[i];
+    if (sy + ROAD_HALF < viewTop || sy - ROAD_HALF > viewBottom) continue;
+    ctx.fillRect(Math.max(0, viewLeft), sy - ROAD_HALF, Math.min(WORLD_W, viewRight) - Math.max(0, viewLeft), ROAD_HALF * 2);
+  }
+  // Centre dashes.
+  ctx.strokeStyle = '#c8a84a';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([26, 30]);
+  ctx.beginPath();
+  for (let i = 0; i < city.avenues.length; i += 1) {
+    const ax = city.avenues[i];
+    if (ax < viewLeft || ax > viewRight) continue;
+    ctx.moveTo(ax, Math.max(0, viewTop));
+    ctx.lineTo(ax, Math.min(WORLD_H, viewBottom));
+  }
+  for (let i = 0; i < city.streets.length; i += 1) {
+    const sy = city.streets[i];
+    if (sy < viewTop || sy > viewBottom) continue;
+    ctx.moveTo(Math.max(0, viewLeft), sy);
+    ctx.lineTo(Math.min(WORLD_W, viewRight), sy);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  // Crosswalks at visible intersections.
+  ctx.fillStyle = 'rgba(240,240,230,0.5)';
+  for (let i = 0; i < city.avenues.length; i += 1) {
+    const ax = city.avenues[i];
+    if (ax < viewLeft || ax > viewRight) continue;
+    for (let j = 0; j < city.streets.length; j += 1) {
+      const sy = city.streets[j];
+      if (sy < viewTop || sy > viewBottom) continue;
+      for (let k = -2; k <= 2; k += 1) {
+        ctx.fillRect(ax - 40 + k * 18, sy - ROAD_HALF - 6, 8, 12);
+        ctx.fillRect(ax - 40 + k * 18, sy + ROAD_HALF - 6, 8, 12);
+      }
+    }
+  }
+
+  // Parks and parking lots.
+  for (let i = 0; i < city.parks.length; i += 1) {
+    const p = city.parks[i];
+    ctx.fillStyle = '#2f6b3a';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+  }
+  for (let i = 0; i < city.lots.length; i += 1) {
+    const l = city.lots[i];
+    ctx.fillStyle = '#3a3f4a';
+    ctx.fillRect(l.x, l.y, l.w, l.h);
+    ctx.strokeStyle = 'rgba(230,230,220,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(l.x + 4, l.y + 4, l.w - 8, l.h - 8);
+  }
+  // Parking spot lines.
+  ctx.strokeStyle = 'rgba(240,240,230,0.35)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < city.parkedSpots.length; i += 1) {
+    const s = city.parkedSpots[i];
+    ctx.strokeRect(s.x - 22, s.y - 14, 44, 28);
+  }
+
+  // Buildings (culled to the camera view; windows were precomputed at build).
+  for (let i = 0; i < city.buildings.length; i += 1) {
+    const b = city.buildings[i];
+    if (b.x > viewRight || b.x + b.w < viewLeft || b.y > viewBottom || b.y + b.h < viewTop) continue;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = b.roof;
+    ctx.fillRect(b.x + 8, b.y + 8, b.w - 16, b.h - 16);
+    // Lit windows: precomputed per building at city build.
+    for (let wi = 0; wi < b.windows.length; wi += 1) {
+      const win = b.windows[wi];
+      ctx.fillStyle = win.color;
+      ctx.fillRect(win.x, win.y, 18, 14);
+    }
+    // Landmark buildings get no text label here: their zone marker below the
+    // door already names them (drawing both doubled every landmark name).
+    if (b.label && !b.name) {
+      ctx.fillStyle = '#f5f0e6';
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 - 4);
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillRect(b.x + b.w / 2 - 24, b.y + b.h / 2 + 4, 48, 3);
+    }
+  }
+
+  // Palms.
+  for (let i = 0; i < city.palms.length; i += 1) {
+    const p = city.palms[i];
+    ctx.fillStyle = '#3f7a44';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2c5a31';
+    ctx.beginPath();
+    ctx.arc(p.x + 4, p.y - 4, 7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Skid marks.
+  ctx.strokeStyle = 'rgba(20,20,24,0.45)';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < world.particles.skids.length; i += 1) {
+    const s = world.particles.skids[i];
+    ctx.globalAlpha = Math.min(1, s.life / 3);
+    ctx.beginPath();
+    ctx.moveTo(s.x1, s.y1);
+    ctx.lineTo(s.x2, s.y2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Zone markers (shops, safehouse, mission targets).
+  for (let i = 0; i < city.zones.length; i += 1) {
+    const z = city.zones[i];
+    if (z.name === 'vault') continue;
+    const pulse = 0.6 + 0.4 * Math.sin(time * 3 + i);
+    ctx.strokeStyle = z.kind === 'loft' ? '#7ee8fa' : '#ffd76a';
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = pulse;
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, z.r * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#f5f0e6';
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(z.label, z.x, z.y - z.r * 0.55 - 8);
+  }
+
+  // Mission target marker.
+  const target = world.missionTarget;
+  if (target) {
+    const pulse = 1 + 0.18 * Math.sin(time * 5);
+    ctx.save();
+    ctx.translate(target.x, target.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#ffd76a';
+    const s = 16 * pulse;
+    ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.strokeStyle = '#1a1a22';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-s / 2, -s / 2, s, s);
+    ctx.restore();
+  }
+  // Side-job fare marker.
+  const job = world.missions.side;
+  if (job && job.phase === 'pickup') {
+    ctx.fillStyle = '#7ee8fa';
+    ctx.beginPath();
+    ctx.arc(job.x, job.y, 12 + 3 * Math.sin(time * 5), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a22';
+    ctx.font = 'bold 13px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('$', job.x, job.y + 5);
+  }
+
+  // Cars.
+  for (let i = 0; i < world.cars.length; i += 1) {
+    drawCar(ctx, world.cars[i], time);
+  }
+  // Pedestrians.
+  for (let i = 0; i < world.peds.length; i += 1) {
+    const p = world.peds[i];
+    if (p.state === 'down') {
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, 14, 7, p.angle, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a1a22';
+      ctx.beginPath();
+      ctx.arc(p.x + Math.cos(p.angle) * 4, p.y + Math.sin(p.angle) * 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  // Guards.
+  for (let i = 0; i < world.guards.length; i += 1) {
+    const g = world.guards[i];
+    if (g.dead) continue;
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#ffd76a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(g.x, g.y);
+    ctx.lineTo(g.x + Math.cos(g.angle) * 22, g.y + Math.sin(g.angle) * 22);
+    ctx.stroke();
+  }
+  // Foot cops.
+  for (let i = 0; i < world.footCops.length; i += 1) {
+    const c = world.footCops[i];
+    ctx.fillStyle = '#2f6fd0';
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd76a';
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Player (on foot only; inside a car the car is the body).
+  const player = world.player;
+  if (!player.car && !player.dead) {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+    ctx.fillStyle = '#e8e4da';
+    ctx.beginPath();
+    ctx.arc(0, 0, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(6, -3, 12, 6); // arm / gun direction
+    ctx.fillStyle = '#f2c230';
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Direction ring when the player has the pistol out.
+    if (player.hasPistol) {
+      ctx.strokeStyle = 'rgba(242,194,48,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, 20, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  // Bullets.
+  ctx.fillStyle = '#ffe27a';
+  for (let i = 0; i < world.bullets.length; i += 1) {
+    const b = world.bullets[i];
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Particles.
+  for (let i = 0; i < world.particles.list.length; i += 1) {
+    const pt = world.particles.list[i];
+    ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+    ctx.fillStyle = pt.color;
+    ctx.beginPath();
+    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Floating texts.
+  ctx.font = 'bold 16px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  for (let i = 0; i < world.particles.texts.length; i += 1) {
+    const t = world.particles.texts[i];
+    ctx.globalAlpha = Math.max(0, t.life);
+    ctx.fillStyle = t.color;
+    ctx.fillText(t.text, t.x, t.y);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.restore();
+
+  // Dusk vignette in screen space (pre-rendered once per size: a live radial
+  // gradient fill every frame is the slowest draw in software rendering).
+  ctx.drawImage(vignetteFor(w, h), 0, 0);
+
+  drawMinimap(ctx, world, w, h, time);
+}
+
+// Cached vignette: an offscreen canvas with the radial gradient baked in.
+let vignetteCanvas = null;
+let vignetteW = 0;
+let vignetteH = 0;
+function vignetteFor(w, h) {
+  if (vignetteCanvas && vignetteW === w && vignetteH === h) return vignetteCanvas;
+  vignetteCanvas = document.createElement('canvas');
+  vignetteCanvas.width = w;
+  vignetteCanvas.height = h;
+  const vctx = vignetteCanvas.getContext('2d');
+  const grad = vctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+  grad.addColorStop(0, 'rgba(30,16,60,0)');
+  grad.addColorStop(1, 'rgba(30,16,60,0.38)');
+  vctx.fillStyle = grad;
+  vctx.fillRect(0, 0, w, h);
+  vignetteW = w;
+  vignetteH = h;
+  return vignetteCanvas;
+}
+
+function drawCar(ctx, car, time) {
+  ctx.save();
+  ctx.translate(car.x, car.y);
+  ctx.rotate(car.angle);
+  const l = car.l;
+  const wd = car.w;
+  // Shadow.
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  roundRectPath(ctx, -l / 2 + 3, -wd / 2 + 4, l, wd, 8);
+  ctx.fill();
+  // Body.
+  ctx.fillStyle = car.color;
+  roundRectPath(ctx, -l / 2, -wd / 2, l, wd, 8);
+  ctx.fill();
+  // Windshield + roof.
+  ctx.fillStyle = 'rgba(20,30,44,0.85)';
+  ctx.fillRect(l * 0.12, -wd / 2 + 4, 12, wd - 8);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  roundRectPath(ctx, -l * 0.18, -wd / 2 + 5, l * 0.28, wd - 10, 5);
+  ctx.fill();
+  // Wheels.
+  ctx.fillStyle = '#14141a';
+  ctx.fillRect(-l * 0.32, -wd / 2 - 3, 14, 6);
+  ctx.fillRect(-l * 0.32, wd / 2 - 3, 14, 6);
+  ctx.fillRect(l * 0.32, -wd / 2 - 3, 14, 6);
+  ctx.fillRect(l * 0.32, wd / 2 - 3, 14, 6);
+  // Headlights.
+  ctx.fillStyle = '#ffe9a8';
+  ctx.fillRect(l / 2 - 2, -wd / 2 + 5, 4, 5);
+  ctx.fillRect(l / 2 - 2, wd / 2 - 10, 4, 5);
+  if (car.type === 'taxi') {
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillRect(-6, -8, 12, 16);
+    ctx.fillStyle = '#1a1a22';
+    ctx.font = 'bold 9px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('TAXI', 0, 3);
+  }
+  if (car.type === 'police') {
+    // Flashing light bar.
+    const on = Math.floor(time * 6) % 2 === 0;
+    ctx.fillStyle = on ? '#ff3b30' : '#2f6fd0';
+    ctx.fillRect(-8, -wd / 2 + 2, 16, 8);
+    ctx.fillStyle = on ? '#2f6fd0' : '#ff3b30';
+    ctx.fillRect(-8, wd / 2 - 10, 16, 8);
+    ctx.fillStyle = '#f5f0e6';
+    ctx.font = 'bold 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HPD', 0, 3);
+  }
+  // Damage smoke.
+  if (car.health < 40 && !car.dead) {
+    ctx.fillStyle = 'rgba(120,120,130,0.5)';
+    ctx.beginPath();
+    ctx.arc(-l * 0.3, 0, 8 + 4 * Math.sin(time * 9), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (car.dead) {
+    ctx.fillStyle = 'rgba(20,20,24,0.55)';
+    roundRectPath(ctx, -l / 2, -wd / 2, l, wd, 8);
+    ctx.fill();
+  }
+  ctx.restore();
+  // Player's car gets a marker ring.
+  if (car.driver === 'player') {
+    ctx.strokeStyle = '#7ee8fa';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(car.x, car.y, Math.max(car.l, car.w) * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+function drawMinimap(ctx, world, w, h, time) {
+  const mw = 168;
+  const mh = 118;
+  const mx = 14;
+  const my = h - mh - 14;
+  const sx = mw / WORLD_W;
+  const sy = mh / WORLD_H;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,12,20,0.78)';
+  roundRectPath(ctx, mx, my, mw, mh, 8);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(mx, my, mw, mh);
+  ctx.beginPath();
+  ctx.rect(mx, my, mw, mh);
+  ctx.clip();
+  // Water.
+  ctx.fillStyle = '#1b4a6b';
+  ctx.fillRect(mx + WATER_X * sx, my, (WORLD_W - WATER_X) * sx, mh);
+  // Roads.
+  ctx.strokeStyle = 'rgba(200,200,210,0.7)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < world.city.avenues.length; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(mx + world.city.avenues[i] * sx, my);
+    ctx.lineTo(mx + world.city.avenues[i] * sx, my + mh);
+    ctx.stroke();
+  }
+  for (let i = 0; i < world.city.streets.length; i += 1) {
+    ctx.beginPath();
+    ctx.moveTo(mx, my + world.city.streets[i] * sy);
+    ctx.lineTo(mx + mw, my + world.city.streets[i] * sy);
+    ctx.stroke();
+  }
+  const dot = (x, y, color, r) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(mx + x * sx, my + y * sy, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // Mission target.
+  const target = world.missionTarget;
+  if (target) {
+    const pulse = 2 + Math.sin(time * 5);
+    dot(target.x, target.y, '#ffd76a', 4 + pulse);
+  }
+  // Cars.
+  for (let i = 0; i < world.cars.length; i += 1) {
+    const c = world.cars[i];
+    if (c.type === 'police') dot(c.x, c.y, '#3b82f6', 2.5);
+    else if (c.driver === 'player') dot(c.x, c.y, '#7ee8fa', 3);
+  }
+  // Cops.
+  for (let i = 0; i < world.footCops.length; i += 1) {
+    dot(world.footCops[i].x, world.footCops[i].y, '#3b82f6', 2);
+  }
+  // Player.
+  dot(world.player.x, world.player.y, '#ffffff', 3.5);
+  ctx.restore();
+}
+
+
+// ---- ui.js ----
+// DOM HUD and screens: cash, health, ammo, wanted stars, objective line, banners,
+// title / pause / wasted / busted / victory screens. The canvas stays the game.
+function createUI(callbacks) {
+  const root = document.getElementById('ui');
+  root.innerHTML = `
+    <div id="hud" class="hidden">
+      <div id="hud-top">
+        <div id="hud-left">
+          <div id="stars"></div>
+          <div id="cash">$0</div>
+        </div>
+        <div id="objective"></div>
+        <div id="hud-right">
+          <div id="health-wrap"><div id="health-bar"></div><span id="health-text"></span></div>
+          <div id="ammo"></div>
+        </div>
+      </div>
+      <div id="prompt"></div>
+      <div id="hint">WASD drive/walk &middot; E enter car &middot; F shoot &middot; Space handbrake &middot; Q use &middot; P pause &middot; M mute</div>
+    </div>
+    <div id="banner" class="hidden"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="screen-title" class="screen">
+      <h1>NEON<span>HARBOR</span></h1>
+      <p class="tagline">A driver-for-hire climbs the underworld of a coastal neon city.</p>
+      <div class="menu">
+        <button id="btn-continue" class="hidden">Continue</button>
+        <button id="btn-new">New game</button>
+        <button id="btn-help">How to play</button>
+      </div>
+      <div id="help" class="hidden">
+        <p><b>Drive:</b> WASD / arrows &middot; <b>Enter car:</b> E &middot; <b>Handbrake:</b> Space</p>
+        <p><b>Shoot:</b> F or click &middot; <b>Use place:</b> Q &middot; <b>Pause:</b> P &middot; <b>Mute:</b> M</p>
+        <p>Take jobs at the <b>Lantern Bar</b>. Lose the cops at <b>Rook's Loft</b>. Repair at the <b>Pit Stop</b>, heal at the <b>Med Stop</b>, ammo at <b>Harbor Arms</b>. Sell a hot car at the <b>Chop Shop</b>.</p>
+      </div>
+      <p class="fine">An original game. No affiliation with any existing crime-game series.</p>
+    </div>
+    <div id="screen-pause" class="screen hidden">
+      <h2>PAUSED</h2>
+      <div class="menu">
+        <button id="btn-resume">Resume</button>
+        <button id="btn-restart">Restart run</button>
+        <button id="btn-mute">Mute: off</button>
+        <button id="btn-title">Quit to title</button>
+      </div>
+    </div>
+    <div id="screen-dead" class="screen hidden">
+      <h2 class="red">WASTED</h2>
+      <p id="dead-stats"></p>
+      <div class="menu">
+        <button id="btn-retry">Retry from last save</button>
+        <button id="btn-dead-title">Title screen</button>
+      </div>
+    </div>
+    <div id="screen-busted" class="screen hidden">
+      <h2 class="blue">BUSTED</h2>
+      <p>The Harbor PD hauled you in. Bail ate your cash.</p>
+      <div class="menu">
+        <button id="btn-busted-retry">Retry from last save</button>
+        <button id="btn-busted-title">Title screen</button>
+      </div>
+    </div>
+    <div id="screen-victory" class="screen hidden">
+      <h2 class="gold">THE HARBOR IS YOURS</h2>
+      <p id="victory-stats"></p>
+      <div class="menu">
+        <button id="btn-freeroam">Keep playing (free roam)</button>
+        <button id="btn-victory-title">Title screen</button>
+      </div>
+    </div>`;
+
+  const el = (id) => document.getElementById(id);
+  const ui = {
+    showScreen(name) {
+      ['screen-title', 'screen-pause', 'screen-dead', 'screen-busted', 'screen-victory'].forEach((id) => {
+        el(id).classList.add('hidden');
+      });
+      if (name) el('screen-' + name).classList.remove('hidden');
+      el('hud').classList.toggle('hidden', name === 'title');
+    },
+    setHUD(s) {
+      el('stars').textContent = '★'.repeat(s.stars) + '☆'.repeat(5 - s.stars);
+      el('stars').className = s.stars > 0 ? 'hot' : '';
+      el('cash').textContent = '$' + s.cash.toLocaleString('en-US');
+      el('health-bar').style.width = Math.max(0, s.health) + '%';
+      el('health-text').textContent = Math.round(s.health) + ' HP';
+      el('ammo').textContent = s.hasPistol ? '🔫 ' + s.ammo : '👊 fists';
+      el('objective').textContent = s.objective || '';
+      el('prompt').textContent = s.prompt || '';
+    },
+    banner(title, sub, dur) {
+      el('banner-title').textContent = title;
+      el('banner-sub').textContent = sub || '';
+      el('banner').classList.remove('hidden');
+      clearTimeout(ui._bannerTimer);
+      ui._bannerTimer = setTimeout(() => el('banner').classList.add('hidden'), (dur || 3) * 1000);
+    },
+    setMute(muted) {
+      el('btn-mute').textContent = 'Mute: ' + (muted ? 'on' : 'off');
+    },
+    setContinueVisible(visible) {
+      el('btn-continue').classList.toggle('hidden', !visible);
+    },
+    setDeadStats(text) {
+      el('dead-stats').textContent = text;
+    },
+    setVictoryStats(text) {
+      el('victory-stats').textContent = text;
+    },
+  };
+
+  el('btn-new').addEventListener('click', () => callbacks.onNewGame());
+  el('btn-continue').addEventListener('click', () => callbacks.onContinue());
+  el('btn-help').addEventListener('click', () => el('help').classList.toggle('hidden'));
+  el('btn-resume').addEventListener('click', () => callbacks.onResume());
+  el('btn-restart').addEventListener('click', () => callbacks.onRestart());
+  el('btn-mute').addEventListener('click', () => callbacks.onToggleMute());
+  el('btn-title').addEventListener('click', () => callbacks.onTitle());
+  el('btn-retry').addEventListener('click', () => callbacks.onRetry());
+  el('btn-dead-title').addEventListener('click', () => callbacks.onTitle());
+  el('btn-busted-retry').addEventListener('click', () => callbacks.onRetry());
+  el('btn-busted-title').addEventListener('click', () => callbacks.onTitle());
+  el('btn-freeroam').addEventListener('click', () => callbacks.onFreeRoam());
+  el('btn-victory-title').addEventListener('click', () => callbacks.onTitle());
+
+  return ui;
+}
+
+
+// ---- shots.js ----
+// Screenshot presets: ?shot=1-start|2-drive|3-chase|4-mission. Each one puts the
+// world in a readable, representative state for the kit's 4 screenshots.
+
+function applyShot(world, name) {
+  const player = world.player;
+  const city = world.city;
+  switch (name) {
+    case '1-start': {
+      // Rook on foot by the Loft, a parked car beside him, traffic passing.
+      player.x = 320;
+      player.y = 1400;
+      world.camX = player.x;
+      world.camY = player.y;
+      return;
+    }
+    case '2-drive': {
+      // Driving a sport car down an avenue with traffic around.
+      const car = makeCar('sport', 704, 700, Math.PI / 2, world.rng, { driver: 'player' });
+      car.speed = 320;
+      world.cars.push(car);
+      player.car = car;
+      player.x = car.x;
+      player.y = car.y;
+      world.camX = car.x;
+      world.camY = car.y;
+      world.spawnTrafficNear(704, 700, 4);
+      return;
+    }
+    case '3-chase': {
+      // Three stars, two police cars closing in and a foot cop on the hunt.
+      const car = makeCar('sport', 1088, 900, 0, world.rng, { driver: 'player' });
+      car.speed = 380;
+      world.cars.push(car);
+      player.car = car;
+      player.x = car.x;
+      player.y = car.y;
+      addHeat(world.wanted, 70);
+      const pc1 = makePoliceCar(city, world.rng, 900, 900);
+      pc1.car.angle = 0;
+      pc1.car.speed = 420;
+      const pc2 = makePoliceCar(city, world.rng, 1088, 1088);
+      pc2.car.angle = -Math.PI / 2;
+      pc2.car.speed = 420;
+      world.policeCars.push(pc1, pc2);
+      world.cars.push(pc1.car, pc2.car);
+      world.footCops.push(makeFootCop(1180, 850));
+      world.camX = car.x;
+      world.camY = car.y;
+      return;
+    }
+    case '4-mission': {
+      // Mission 1 active: drive to the Lantern Bar to pick up the fare.
+      const def = currentMissionDef(world.missions);
+      if (def) startMission(world.missions, def, world);
+      const car = makeCar('taxi', 320, 1100, -Math.PI / 2, world.rng, { driver: 'player' });
+      car.speed = 200;
+      world.cars.push(car);
+      player.car = car;
+      player.x = car.x;
+      player.y = car.y;
+      world.camX = car.x;
+      world.camY = car.y;
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+
+// ---- world.js ----
+// NEONHARBOR — the world: owns every entity and runs the step. main.js calls
+// update(dt, input) once per frame; render.js draws the state; ui.js shows it.
+
+const TRAFFIC_TARGET = 12;
+const PED_TARGET = 14;
+
+function createWorld(seed, opts) {
+  const o = opts || {};
+  const world = {
+    seed,
+    rng: mulberry32(seed),
+    city: null,
+    player: null,
+    cars: [],
+    traffic: [],
+    peds: [],
+    footCops: [],
+    policeCars: [],
+    guards: [],
+    bullets: makeBullets(),
+    particles: makeParticles(),
+    wanted: makeWanted(),
+    missions: makeMissionState(),
+    time: 0,
+    playSeconds: 0,
+    totalEarned: 0,
+    state: 'title', // title | playing | paused | dead | busted | victory
+    camX: 0,
+    camY: 0,
+    shake: 0,
+    missionTarget: null,
+    objective: '',
+    prompt: '',
+    events: [],
+    lastShot: null,
+    lastCrash: null,
+    crashCooldown: 0,
+    victoryShown: false,
+    debug: !!o.debug,
+  };
+
+  world.emit = function emit(type, data) {
+    world.events.push({ type, ...(data || {}) });
+  };
+  world.banner = function banner(title, sub, dur) {
+    world.emit('banner', { title, sub, dur });
+  };
+  world.addHeat = function addHeatAmount(n) {
+    addHeat(world.wanted, n);
+  };
+
+  world.reset = function reset() {
+    world.rng = mulberry32(seed);
+    world.city = buildCity(seed);
+    world.player = makePlayer(world.city.playerStart.x, world.city.playerStart.y);
+    world.cars = [];
+    world.traffic = [];
+    world.peds = [];
+    world.footCops = [];
+    world.policeCars = [];
+    world.guards = [];
+    world.bullets = makeBullets();
+    world.particles = makeParticles();
+    world.wanted = makeWanted();
+    world.missions = makeMissionState();
+    world.time = 0;
+    world.playSeconds = 0;
+    world.totalEarned = 0;
+    world.state = 'playing';
+    world.camX = world.player.x;
+    world.camY = world.player.y;
+    world.shake = 0;
+    world.missionTarget = null;
+    world.objective = '';
+    world.prompt = '';
+    world.events = [];
+    world.lastShot = null;
+    world.lastCrash = null;
+    world.crashCooldown = 0;
+    world.victoryShown = false;
+    // Parked cars from the city's spots.
+    for (let i = 0; i < world.city.parkedSpots.length; i += 1) {
+      const s = world.city.parkedSpots[i];
+      const fixed = s.fixed || null;
+      world.cars.push(makeCar(s.type, s.x, s.y, s.angle, world.rng, { color: s.color, fixed }));
+    }
+    // One car parked by the Loft so the first drive is a step away.
+    world.cars.push(makeCar('sedan', 352, 1400, Math.PI / 2, world.rng, {}));
+    for (let i = 0; i < TRAFFIC_TARGET; i += 1) {
+      const t = makeTrafficCar(world.city, world.rng);
+      world.traffic.push(t);
+      world.cars.push(t.car);
+    }
+    for (let i = 0; i < PED_TARGET; i += 1) {
+      world.peds.push(makePed(world.city, world.rng));
+    }
+    computeTargetAndObjective(world);
+    computePrompt(world);
+    world.banner('NEON HARBOR', 'Take work at the Lantern Bar. Stay out of the cells.', 2);
+  };
+
+  world.saveGame = function saveGame() {
+    writeSave({
+      cash: world.player.cash,
+      ammo: world.player.ammo,
+      health: world.player.health,
+      missionIndex: world.missions.index,
+      completed: world.missions.completed,
+      storyDone: world.missions.storyDone,
+      totalEarned: world.totalEarned,
+      playSeconds: world.playSeconds,
+      x: world.player.x,
+      y: world.player.y,
+    });
+  };
+
+  world.loadSaveInto = function loadSaveInto(save) {
+    if (!save) return;
+    world.player.cash = save.cash;
+    world.player.ammo = save.ammo;
+    world.player.health = save.health;
+    world.player.x = save.x || world.city.playerStart.x;
+    world.player.y = save.y || world.city.playerStart.y;
+    world.missions.index = save.missionIndex || 0;
+    world.missions.completed = save.completed || [];
+    world.missions.storyDone = !!save.storyDone;
+    world.totalEarned = save.totalEarned || 0;
+    world.playSeconds = save.playSeconds || 0;
+    world.camX = world.player.x;
+    world.camY = world.player.y;
+  };
+
+  world.ensureSunray = function ensureSunray() {
+    if (world.cars.some((c) => c.fixed === 'sunray')) return;
+    const s = world.city.sunraySpot;
+    world.cars.push(makeCar('sport', s.x, s.y, s.angle, world.rng, { color: '#f2c230', fixed: 'sunray' }));
+  };
+
+  world.spawnTargetCar = function spawnTargetCar() {
+    const spot = world.city.roadPointNear(world.player.x, world.player.y, 380);
+    const car = makeCar('sedan', spot.x, spot.y, 0, world.rng, { driver: 'npc', color: '#8a8f96', fixed: 'target' });
+    car.maxSpeed = 175;
+    const t = { car, axis: 'v', dir: 1, cruise: 175, isTarget: true };
+    world.traffic.push(t);
+    world.cars.push(car);
+    return car;
+  };
+
+  world.spawnBankGuards = function spawnBankGuards() {
+    const bank = world.city.zone('bank');
+    if (!bank) return;
+    for (let i = 0; i < 3; i += 1) {
+      world.guards.push(makeGuard(bank.x + (i - 1) * 70, bank.y - 40, world.rng));
+    }
+    world.banner('Guards on the floor', 'The vault crew is armed. Clear them out.', 3);
+  };
+
+  world.spawnTrafficNear = function spawnTrafficNear(x, y, n) {
+    for (let i = 0; i < n; i += 1) {
+      const t = makeTrafficCar(world.city, world.rng);
+      t.car.x = x + range(world.rng, -260, 260);
+      t.car.y = y + range(world.rng, -260, 260);
+      world.traffic.push(t);
+      world.cars.push(t.car);
+    }
+  };
+
+  world.enterExitCar = function enterExitCar() {
+    const player = world.player;
+    if (player.car) {
+      const car = player.car;
+      car.driver = null;
+      player.car = null;
+      const px = car.x + Math.cos(car.angle + Math.PI / 2) * 34;
+      const py = car.y + Math.sin(car.angle + Math.PI / 2) * 34;
+      const resolved = world.city.resolveCircle(px, py, PLAYER.radius);
+      player.x = resolved.x;
+      player.y = resolved.y;
+      world.emit('sfx', { name: 'click' });
+      return;
+    }
+    const car = nearestCar(world.cars, player.x, player.y, 72);
+    if (!car) return;
+    if (car.driver === 'npc') {
+      // Pull the driver out: they flee on foot, the heat is on you.
+      const driver = makePed(world.city, world.rng, car.x + 30, car.y + 30);
+      driver.state = 'flee';
+      driver.timer = 3;
+      driver.fleeX = car.x + 40 - player.x;
+      driver.fleeY = car.y + 40 - player.y;
+      world.peds.push(driver);
+      world.addHeat(30);
+      world.banner('Car jacked', 'The Harbor PD was told. Lose them.', 2.5);
+      world.emit('sfx', { name: 'crash', arg: 0.4 });
+    }
+    car.driver = 'player';
+    player.car = car;
+    player.x = car.x;
+    player.y = car.y;
+    world.emit('sfx', { name: 'click' });
+  };
+
+  world.shootAt = function shootAt(wx, wy) {
+    const player = world.player;
+    if (player.shootTimer > 0) return;
+    const fromX = player.car ? player.car.x : player.x;
+    const fromY = player.car ? player.car.y : player.y;
+    const angle = Math.atan2(wy - fromY, wx - fromX);
+    player.angle = angle;
+    if (!player.hasPistol || player.ammo <= 0) {
+      world.punch(angle);
+      return;
+    }
+    player.ammo -= 1;
+    player.shootTimer = COMBAT.pistolInterval;
+    fireBullet(world.bullets, fromX + Math.cos(angle) * 24, fromY + Math.sin(angle) * 24, angle, true);
+    world.lastShot = { x: fromX, y: fromY, r: 240, t: 0.6 };
+    world.addHeat(25);
+    world.emit('sfx', { name: 'shoot' });
+    world.shake = Math.min(1, world.shake + 0.15);
+  };
+
+  world.punch = function punch(angle) {
+    const player = world.player;
+    if (player.punchTimer > 0) return;
+    player.punchTimer = 0.45;
+    player.angle = angle;
+    const px = player.x + Math.cos(angle) * 34;
+    const py = player.y + Math.sin(angle) * 34;
+    world.emit('sfx', { name: 'punch' });
+    // Hit the nearest ped / guard / cop in reach.
+    for (let i = 0; i < world.peds.length; i += 1) {
+      const ped = world.peds[i];
+      if (ped.state !== 'down' && Math.hypot(ped.x - px, ped.y - py) < 34) {
+        if (knockDown(ped, world.rng)) {
+          world.addHeat(40);
+          burst(world.particles, ped.x, ped.y, { color: '#e05a4e', n: 10 });
+        }
+        return;
+      }
+    }
+    for (let i = 0; i < world.guards.length; i += 1) {
+      const g = world.guards[i];
+      if (!g.dead && Math.hypot(g.x - px, g.y - py) < 36) {
+        damageGuard(g, 25);
+        burst(world.particles, g.x, g.y, { color: '#e05a4e', n: 8 });
+        return;
+      }
+    }
+    for (let i = 0; i < world.footCops.length; i += 1) {
+      const c = world.footCops[i];
+      if (Math.hypot(c.x - px, c.y - py) < 36) {
+        c.x += Math.cos(angle) * 30;
+        c.y += Math.sin(angle) * 30;
+        world.addHeat(20);
+        return;
+      }
+    }
+  };
+
+  world.interact = function interact() {
+    const player = world.player;
+    const zone = nearestZone(world, player.x, player.y, 85);
+    if (!zone) return;
+    switch (zone.name) {
+      case 'bar': {
+        if (world.missions.active) {
+          world.banner('Job in progress', world.missions.active.def.name + ' — check the marker.', 2.5);
+          return;
+        }
+        const def = currentMissionDef(world.missions);
+        if (!def) {
+          world.banner('No work right now', 'Free roam — taxi fares pay the bills.', 2.5);
+          return;
+        }
+        startMission(world.missions, def, world);
+        world.banner(def.name, def.brief, 4);
+        world.emit('sfx', { name: 'mission' });
+        return;
+      }
+      case 'garage': {
+        if (!player.car) {
+          world.banner('Pit Stop Garage', 'Bring a car in to repair it — $' + ECONOMY.repairCost + '.', 2.5);
+          return;
+        }
+        if (player.car.health >= 100) {
+          world.banner('Pit Stop Garage', 'She is already in good shape.', 2);
+          return;
+        }
+        if (player.cash < ECONOMY.repairCost) {
+          world.banner('Pit Stop Garage', 'Repair is $' + ECONOMY.repairCost + ' — you are short.', 2.5);
+          return;
+        }
+        player.cash -= ECONOMY.repairCost;
+        player.car.health = 100;
+        player.car.dead = false;
+        world.banner('Repaired', 'Good as new. $' + ECONOMY.repairCost + '.', 2);
+        world.emit('sfx', { name: 'cash' });
+        return;
+      }
+      case 'med': {
+        if (player.health >= 100) {
+          world.banner('Med Stop', 'You are already patched up.', 2);
+          return;
+        }
+        if (player.cash < ECONOMY.healCost) {
+          world.banner('Med Stop', 'A patch-up is $' + ECONOMY.healCost + ' — you are short.', 2.5);
+          return;
+        }
+        player.cash -= ECONOMY.healCost;
+        healPlayer(player, 100);
+        world.banner('Patched up', 'Back to full health. $' + ECONOMY.healCost + '.', 2);
+        world.emit('sfx', { name: 'cash' });
+        return;
+      }
+      case 'arms': {
+        if (player.cash < ECONOMY.ammoCost) {
+          world.banner('Harbor Arms', '12 rounds is $' + ECONOMY.ammoCost + ' — you are short.', 2.5);
+          return;
+        }
+        player.cash -= ECONOMY.ammoCost;
+        player.ammo += ECONOMY.ammoPack;
+        world.banner('Ammo bought', '+' + ECONOMY.ammoPack + ' rounds. $' + ECONOMY.ammoCost + '.', 2);
+        world.emit('sfx', { name: 'cash' });
+        return;
+      }
+      case 'loft': {
+        clearWanted(world.wanted);
+        world.footCops = [];
+        for (let i = 0; i < world.policeCars.length; i += 1) {
+          world.policeCars[i].car.driver = null;
+        }
+        world.policeCars = [];
+        world.saveGame();
+        world.banner('Safehouse', 'Heat is off. Progress saved.', 2.5);
+        world.emit('sfx', { name: 'pickup' });
+        return;
+      }
+      case 'chop': {
+        if (!player.car) {
+          world.banner('Chop Shop', 'Bring a car in to sell it.', 2.5);
+          return;
+        }
+        const car = player.car;
+        const pay = car.fixed === 'sunray' ? 300 : 150;
+        player.cash += pay;
+        world.totalEarned += pay;
+        const idx = world.cars.indexOf(car);
+        if (idx >= 0) world.cars.splice(idx, 1);
+        player.car = null;
+        player.x = zone.x;
+        player.y = zone.y + 40;
+        world.banner('Car sold — $' + pay, 'No questions asked.', 2.5);
+        world.emit('sfx', { name: 'cash' });
+        return;
+      }
+      default:
+        world.banner(zone.label, 'Nothing to do here right now.', 2);
+        return;
+    }
+  };
+
+  function nearestZone(w, x, y, maxDist) {
+    let best = null;
+    let bestD = maxDist;
+    const zones = w.city.zones;
+    for (let i = 0; i < zones.length; i += 1) {
+      if (zones[i].name === 'vault') continue;
+      const d = Math.hypot(zones[i].x - x, zones[i].y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = zones[i];
+      }
+    }
+    return best;
+  }
+
+  function computeTargetAndObjective(w) {
+    const player = w.player;
+    const ms = w.missions;
+    // Side job first.
+    if (ms.side) {
+      if (ms.side.phase === 'pickup') {
+        w.missionTarget = { x: ms.side.x, y: ms.side.y };
+        w.objective = 'Taxi: pick up the fare';
+      } else {
+        w.missionTarget = { x: ms.side.destX, y: ms.side.destY };
+        w.objective = 'Taxi: drop the fare at the Marina';
+      }
+      return;
+    }
+    if (ms.active) {
+      const inst = ms.active;
+      const step = inst.def.steps[inst.step];
+      w.objective = inst.def.name + ' — ' + step.label;
+      if (step.type === 'follow' && inst.targetCar) {
+        w.missionTarget = { x: inst.targetCar.x, y: inst.targetCar.y };
+        return;
+      }
+      if (step.zone) {
+        const zone = w.city.zone(step.zone);
+        if (zone) w.missionTarget = { x: zone.x, y: zone.y };
+        return;
+      }
+      w.missionTarget = null;
+      return;
+    }
+    const def = currentMissionDef(ms);
+    if (def) {
+      const bar = w.city.zone('bar');
+      w.missionTarget = bar ? { x: bar.x, y: bar.y } : null;
+      w.objective = 'Next job: ' + def.name + ' — go to the Lantern Bar (Q)';
+    } else {
+      w.missionTarget = null;
+      w.objective = 'Free roam — the harbor is yours';
+    }
+    if (player.car) w.objective += '  ·  E to get out';
+  }
+
+  function computePrompt(w) {
+    const player = w.player;
+    const zone = nearestZone(w, player.x, player.y, 85);
+    if (!zone) {
+      w.prompt = '';
+      return;
+    }
+    switch (zone.name) {
+      case 'bar': w.prompt = 'Q — Take the job'; break;
+      case 'garage': w.prompt = player.car ? 'Q — Repair car ($' + ECONOMY.repairCost + ')' : 'Q — Pit Stop Garage'; break;
+      case 'med': w.prompt = 'Q — Heal ($' + ECONOMY.healCost + ')'; break;
+      case 'arms': w.prompt = 'Q — Buy ammo ($' + ECONOMY.ammoCost + ')'; break;
+      case 'loft': w.prompt = 'Q — Safehouse: clear heat + save'; break;
+      case 'chop': w.prompt = player.car ? 'Q — Sell this car' : 'Q — Chop Shop'; break;
+      default: w.prompt = ''; break;
+    }
+    if (!player.car && nearestCar(w.cars, player.x, player.y, 72)) {
+      w.prompt = (w.prompt ? w.prompt + '   ' : '') + 'E — Get in the car';
+    }
+  }
+
+  world.update = function update(dt, input) {
+    if (world.state !== 'playing') return;
+    world.time += dt;
+    world.playSeconds += dt;
+    const player = world.player;
+    player.shootTimer = Math.max(0, player.shootTimer - dt);
+    player.punchTimer = Math.max(0, player.punchTimer - dt);
+    world.crashCooldown = Math.max(0, world.crashCooldown - dt);
+    world.shake = Math.max(0, world.shake - dt * 2.2);
+    if (world.lastShot) {
+      world.lastShot.t -= dt;
+      if (world.lastShot.t <= 0) world.lastShot = null;
+    }
+    if (world.lastCrash) {
+      world.lastCrash.t -= dt;
+      if (world.lastCrash.t <= 0) world.lastCrash = null;
+    }
+
+    // Input edges.
+    if (input.wasPressed('e')) world.enterExitCar();
+    if (input.wasPressed('q')) world.interact();
+    if (input.wasPressed('p')) {
+      world.state = 'paused';
+      world.emit('state', { state: 'paused' });
+      return;
+    }
+    if (input.wasPressed('m')) {
+      world.emit('mute');
+      return;
+    }
+    if (input.wasPressed('r')) {
+      const save = loadSave();
+      world.reset();
+      if (save) world.loadSaveInto(save);
+      world.banner('Run restarted', 'Loaded your last save.', 2.5);
+      return;
+    }
+
+    const move = input.moveVector();
+    if (player.car) {
+      const car = player.car;
+      const drive = {
+        throttle: -move.y,
+        steer: move.x,
+        handbrake: input.held('Space'),
+      };
+      const res = stepCar(car, drive, dt, world.city);
+      if (res.hitBuilding && res.hitSpeed > 140) {
+        world.lastCrash = { x: car.x, y: car.y, r: 200, t: 0.6 };
+        world.shake = Math.min(1, world.shake + 0.3);
+        world.emit('sfx', { name: 'crash', arg: res.hitSpeed / 500 });
+        burst(world.particles, car.x, car.y, { color: '#c8c8d0', n: 8, speed: 160 });
+        damagePlayer(player, Math.min(12, (res.hitSpeed - 140) * 0.03));
+      }
+      if (car.skid > 0) {
+        const bx = car.x - Math.cos(car.angle) * car.l * 0.4;
+        const by = car.y - Math.sin(car.angle) * car.l * 0.4;
+        addSkid(world.particles, bx, by, bx + Math.cos(car.angle) * 6, by + Math.sin(car.angle) * 6);
+      }
+      player.x = car.x;
+      player.y = car.y;
+      player.angle = car.angle;
+      // Shooting from the car: aim at the mouse.
+      if (input.wasPressed('f') || input.clicked) {
+        world.shootAt(input.aimX, input.aimY);
+      }
+      if (car.dead) {
+        world.banner('Car wrecked', 'Get out and find another ride.', 2.5);
+        world.enterExitCar();
+      }
+    } else {
+      stepPlayerOnFoot(player, move, dt, world.city);
+      // Aim at the mouse when it has moved; otherwise face movement.
+      if (input.mouseMoved && Math.hypot(input.aimX - player.x, input.aimY - player.y) > 60) {
+        player.angle = Math.atan2(input.aimY - player.y, input.aimX - player.x);
+      }
+      if (input.wasPressed('f') || input.clicked) {
+        world.shootAt(input.aimX, input.aimY);
+      }
+    }
+
+    // Traffic.
+    for (let i = world.traffic.length - 1; i >= 0; i -= 1) {
+      const t = world.traffic[i];
+      stepTrafficCar(t, dt, world.city, world.rng, world.cars);
+      const d = Math.hypot(t.car.x - player.x, t.car.y - player.y);
+      if (d > 1400 && !t.isTarget) {
+        // Recycle far-away traffic near the player.
+        const idx = world.cars.indexOf(t.car);
+        if (idx >= 0) world.cars.splice(idx, 1);
+        world.traffic.splice(i, 1);
+        const nt = makeTrafficCar(world.city, world.rng);
+        nt.car.x = player.x + range(world.rng, -700, 700);
+        nt.car.y = player.y + range(world.rng, -700, 700);
+        world.traffic.push(nt);
+        world.cars.push(nt.car);
+      }
+    }
+    if (world.traffic.length < TRAFFIC_TARGET) {
+      const t = makeTrafficCar(world.city, world.rng);
+      world.traffic.push(t);
+      world.cars.push(t.car);
+    }
+
+    // Pedestrians.
+    const dangers = [];
+    if (world.lastShot) dangers.push(world.lastShot);
+    if (world.lastCrash) dangers.push(world.lastCrash);
+    if (player.car && Math.abs(player.car.speed) > 200) {
+      dangers.push({ x: player.car.x, y: player.car.y, r: 200 });
+    }
+    for (let i = world.peds.length - 1; i >= 0; i -= 1) {
+      const ped = world.peds[i];
+      stepPed(ped, dt, world.city, world.rng, dangers);
+      const d = Math.hypot(ped.x - player.x, ped.y - player.y);
+      if (d > 1200) {
+        world.peds.splice(i, 1);
+        world.peds.push(makePed(world.city, world.rng));
+      }
+      // Run over by the player's car.
+      if (player.car && ped.state !== 'down' && Math.hypot(ped.x - player.car.x, ped.y - player.car.y) < 30) {
+        if (knockDown(ped, world.rng)) {
+          world.addHeat(40);
+          burst(world.particles, ped.x, ped.y, { color: '#e05a4e', n: 12 });
+          addText(world.particles, ped.x, ped.y - 20, '+1 ★ heat', '#ff6b5e');
+          world.emit('sfx', { name: 'punch' });
+        }
+      }
+    }
+
+    // Car-car collisions.
+    for (let i = 0; i < world.cars.length; i += 1) {
+      for (let j = i + 1; j < world.cars.length; j += 1) {
+        const a = world.cars[i];
+        const b = world.cars[j];
+        if (a.dead || b.dead) continue;
+        const impact = collideCars(a, b);
+        if (impact > 120 && (a.driver === 'player' || b.driver === 'player') && world.crashCooldown <= 0) {
+          world.crashCooldown = 2;
+          world.addHeat(8);
+          world.lastCrash = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, r: 200, t: 0.6 };
+          world.shake = Math.min(1, world.shake + 0.35);
+          world.emit('sfx', { name: 'crash', arg: impact / 500 });
+          burst(world.particles, (a.x + b.x) / 2, (a.y + b.y) / 2, { color: '#ffd76a', n: 10, speed: 200 });
+        }
+      }
+    }
+
+    // Bullets.
+    const hits = stepBullets(world.bullets, dt, world.city, (b) => {
+      for (let i = 0; i < world.guards.length; i += 1) {
+        const g = world.guards[i];
+        if (!g.dead && Math.hypot(g.x - b.x, g.y - b.y) < 14) return { kind: 'guard', ref: g };
+      }
+      for (let i = 0; i < world.footCops.length; i += 1) {
+        const c = world.footCops[i];
+        if (Math.hypot(c.x - b.x, c.y - b.y) < 14) return { kind: 'cop', ref: c };
+      }
+      for (let i = 0; i < world.peds.length; i += 1) {
+        const p = world.peds[i];
+        if (p.state !== 'down' && Math.hypot(p.x - b.x, p.y - b.y) < 12) return { kind: 'ped', ref: p };
+      }
+      for (let i = 0; i < world.cars.length; i += 1) {
+        const c = world.cars[i];
+        if (c.driver !== 'player' && Math.hypot(c.x - b.x, c.y - b.y) < c.l * 0.42) return { kind: 'car', ref: c };
+      }
+      if (!b.fromPlayer && Math.hypot(player.x - b.x, player.y - b.y) < 14) return { kind: 'player', ref: player };
+      if (!b.fromPlayer && player.car && Math.hypot(player.car.x - b.x, player.car.y - b.y) < player.car.l * 0.42) {
+        return { kind: 'car', ref: player.car };
+      }
+      return null;
+    });
+    for (let i = 0; i < hits.length; i += 1) {
+      const hit = hits[i];
+      burst(world.particles, hit.x, hit.y, { color: '#ffd76a', n: 6, speed: 140 });
+      if (hit.target === 'wall') continue;
+      const t = hit.target;
+      if (t.kind === 'guard') {
+        damageGuard(t.ref, COMBAT.pistolDamage);
+        if (t.ref.dead) {
+          addText(world.particles, t.ref.x, t.ref.y - 20, 'Guard down', '#ffd76a');
+        }
+      } else if (t.kind === 'cop') {
+        const idx = world.footCops.indexOf(t.ref);
+        if (idx >= 0) world.footCops.splice(idx, 1);
+        world.addHeat(45);
+        addText(world.particles, t.ref.x, t.ref.y - 20, 'Cop down', '#ff6b5e');
+      } else if (t.kind === 'ped') {
+        if (knockDown(t.ref, world.rng)) world.addHeat(40);
+      } else if (t.kind === 'car') {
+        t.ref.health -= COMBAT.pistolDamage;
+        if (t.ref.health <= 0) {
+          t.ref.health = 0;
+          t.ref.dead = true;
+          t.ref.speed = 0;
+          burst(world.particles, t.ref.x, t.ref.y, { color: '#ff9a3c', n: 22, speed: 320 });
+        }
+      } else if (t.kind === 'player') {
+        damagePlayer(player, COMBAT.guardDamage);
+        world.shake = Math.min(1, world.shake + 0.25);
+        world.emit('sfx', { name: 'punch' });
+      }
+    }
+
+    // Guards shoot back.
+    for (let i = 0; i < world.guards.length; i += 1) {
+      const shot = stepGuard(world.guards[i], player, dt, world.city, world.rng);
+      if (shot) {
+        fireBullet(world.bullets, shot.x, shot.y, shot.angle, false);
+        world.emit('sfx', { name: 'shoot' });
+      }
+    }
+
+    // Wanted: police spawn and chase.
+    const counts = wantedCounts(world.wanted.stars, !!player.car);
+    if (world.wanted.stars > 0) {
+      while (world.footCops.length < counts.foot) {
+        const spot = world.city.roadPointNear(player.x, player.y, 480);
+        world.footCops.push(makeFootCop(spot.x, spot.y));
+      }
+      while (world.policeCars.length < counts.cars) {
+        const spot = world.city.roadPointNear(player.x, player.y, 620);
+        const pc = makePoliceCar(world.city, world.rng, spot.x, spot.y);
+        world.policeCars.push(pc);
+        world.cars.push(pc.car);
+      }
+    } else {
+      world.footCops = [];
+      for (let i = 0; i < world.policeCars.length; i += 1) {
+        world.policeCars[i].car.driver = null;
+      }
+      world.policeCars = [];
+    }
+    let seen = false;
+    for (let i = world.footCops.length - 1; i >= 0; i -= 1) {
+      const cop = world.footCops[i];
+      const d = Math.hypot(cop.x - player.x, cop.y - player.y);
+      if (d < 520) seen = true;
+      if (d > 1300) {
+        world.footCops.splice(i, 1);
+        continue;
+      }
+      const res = stepFootCop(cop, player, dt, world.city);
+      if (res === 'busted') {
+        player.busted = true;
+        const bail = Math.min(player.cash, 100);
+        player.cash -= bail;
+        world.state = 'busted';
+        world.emit('state', { state: 'busted' });
+        world.emit('sfx', { name: 'busted' });
+        return;
+      }
+    }
+    for (let i = world.policeCars.length - 1; i >= 0; i -= 1) {
+      const pc = world.policeCars[i];
+      const d = Math.hypot(pc.car.x - player.x, pc.car.y - player.y);
+      if (d < 620) seen = true;
+      if (d > 1500) {
+        const idx = world.cars.indexOf(pc.car);
+        if (idx >= 0) world.cars.splice(idx, 1);
+        world.policeCars.splice(i, 1);
+        continue;
+      }
+      const res = stepPoliceCar(pc, player, dt, world.city, world.rng);
+      if (res && res.dropCop) {
+        world.footCops.push(makeFootCop(res.x, res.y));
+      }
+      // A police car ramming the player's car hurts the player.
+      if (player.car && Math.hypot(pc.car.x - player.car.x, pc.car.y - player.car.y) < 60) {
+        damagePlayer(player, 6 * dt);
+      }
+    }
+    updateWanted(world.wanted, dt, seen);
+
+    // Missions and side jobs.
+    updateMission(world.missions, world, dt);
+    maybeOfferTaxi(world.missions, world, world.rng);
+    updateSideJob(world.missions, world, dt);
+
+    // Smoking wreck.
+    if (player.car && player.car.health < 40 && chance(world.rng, dt * 6)) {
+      smoke(world.particles, player.car.x, player.car.y - 10);
+    }
+
+    // Death.
+    if (player.dead) {
+      world.state = 'dead';
+      world.emit('state', { state: 'dead' });
+      world.emit('sfx', { name: 'wasted' });
+      const best = { cash: world.totalEarned, missions: world.missions.completed.length, seconds: Math.round(world.playSeconds) };
+      writeBest(best);
+      return;
+    }
+    // Victory (once).
+    if (world.missions.storyDone && !world.victoryShown) {
+      world.victoryShown = true;
+      world.state = 'victory';
+      world.emit('state', { state: 'victory' });
+      world.emit('sfx', { name: 'mission' });
+      return;
+    }
+
+    computeTargetAndObjective(world);
+    computePrompt(world);
+    stepParticles(world.particles, dt);
+
+    // Camera follows the player (or the car).
+    const tx = player.x;
+    const ty = player.y;
+    world.camX += (tx - world.camX) * Math.min(1, dt * 5);
+    world.camY += (ty - world.camY) * Math.min(1, dt * 5);
+  };
+
+  world.reset();
+  if (o.save) world.loadSaveInto(o.save);
+  return world;
+}
+
+
+// ---- main.js ----
+// NEONHARBOR — entry point: canvas, input, UI, the frame loop, screen wiring.
+// Debug: ?debug=1 exposes window.__NEONHARBOR__ and enables the debug helpers.
+// Shots: ?shot=1-start|2-drive|3-chase|4-mission starts the game in a staged state.
+
+const params = new URLSearchParams(window.location.search);
+const seed = Number(params.get('seed') || 1);
+const shotName = params.get('shot') || null;
+const debug = params.get('debug') === '1';
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const input = createInput(canvas);
+
+let world = createWorld(seed, { debug });
+
+const ui = createUI({
+  onNewGame() {
+    clearSave();
+    world = createWorld(seed, { debug });
+    startPlaying();
+  },
+  onContinue() {
+    const save = loadSave();
+    world = createWorld(seed, { debug, save });
+    startPlaying();
+  },
+  onResume() {
+    world.state = 'playing';
+    ui.showScreen(null);
+  },
+  onRestart() {
+    const save = loadSave();
+    world = createWorld(seed, { debug, save });
+    startPlaying();
+  },
+  onToggleMute() {
+    setMuted(!isMuted());
+    ui.setMute(isMuted());
+  },
+  onTitle() {
+    world.state = 'title';
+    ui.showScreen('title');
+    ui.setContinueVisible(hasSave());
+  },
+  onRetry() {
+    const save = loadSave();
+    world = createWorld(seed, { debug, save });
+    startPlaying();
+  },
+  onFreeRoam() {
+    world.state = 'playing';
+    ui.showScreen(null);
+  },
+});
+
+function startPlaying() {
+  ensureAudio();
+  startMusic();
+  world.state = 'playing';
+  ui.showScreen(null);
+  if (shotName) applyShot(world, shotName);
+}
+
+function showStateScreen(state) {
+  if (state === 'paused') ui.showScreen('pause');
+  else if (state === 'dead') {
+    ui.setDeadStats(`Earned $${world.totalEarned} · ${world.missions.completed.length} jobs done · ${Math.round(world.playSeconds)}s in the harbor.`);
+    ui.showScreen('dead');
+  } else if (state === 'busted') {
+    ui.showScreen('busted');
+  } else if (state === 'victory') {
+    ui.setVictoryStats(`All 6 story jobs done · $${world.totalEarned} earned · ${Math.round(world.playSeconds)}s in the harbor.`);
+    ui.showScreen('victory');
+  }
+}
+
+function drainEvents() {
+  const events = world.events.splice(0);
+  for (let i = 0; i < events.length; i += 1) {
+    const e = events[i];
+    if (e.type === 'banner') ui.banner(e.title, e.sub, e.dur);
+    else if (e.type === 'state') showStateScreen(e.state);
+    else if (e.type === 'sfx') sfx[e.name] && sfx[e.name](e.arg);
+    else if (e.type === 'mute') {
+      setMuted(!isMuted());
+      ui.setMute(isMuted());
+    }
+  }
+}
+
+let last = performance.now();
+let frames = 0;
+
+function frame(now) {
+  const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+  last = now;
+  frames += 1;
+
+  if (world.state === 'playing') {
+    // Mouse position in world coordinates (the canvas may be CSS-scaled).
+    const rect = canvas.getBoundingClientRect();
+    const zoom = world.player.car ? 0.82 : 0.95;
+    input.aimX = world.camX + (input.mouseX * (canvas.width / rect.width) - canvas.width / 2) / zoom;
+    input.aimY = world.camY + (input.mouseY * (canvas.height / rect.height) - canvas.height / 2) / zoom;
+    world.update(dt, input);
+    drainEvents();
+    // Audio follows the drive.
+    const driving = !!world.player.car;
+    const speed01 = driving ? Math.abs(world.player.car.speed) / world.player.car.maxSpeed : 0;
+    updateEngine(speed01, driving);
+    updateSiren(world.wanted.stars > 0 && (world.policeCars.length > 0 || world.footCops.length > 0));
+  }
+
+  // Camera view.
+  const zoom = world.player.car ? 0.82 : 0.95;
+  const shakeMag = world.shake * 12;
+  const view = {
+    w: canvas.width,
+    h: canvas.height,
+    zoom,
+    shakeX: (Math.random() - 0.5) * shakeMag,
+    shakeY: (Math.random() - 0.5) * shakeMag,
+  };
+  renderWorld(ctx, world, view);
+
+  if (world.state === 'playing') {
+    ui.setHUD({
+      stars: world.wanted.stars,
+      cash: world.player.cash,
+      health: world.player.health,
+      ammo: world.player.ammo,
+      hasPistol: world.player.hasPistol,
+      objective: world.objective,
+      prompt: world.prompt,
+    });
+  }
+
+  input.endStep();
+  requestAnimationFrame(frame);
+}
+
+// Title screen first, unless a shot preset skips straight into the game.
+ui.setContinueVisible(hasSave());
+ui.showScreen('title');
+if (shotName) {
+  startPlaying();
+}
+if (debug) {
+  window.__NEONHARBOR__ = {
+    get world() { return world; },
+    setWanted(stars) {
+      world.wanted.heat = stars * 25;
+      world.wanted.stars = stars;
+    },
+    setMission(i) {
+      world.missions.index = i;
+      world.missions.active = null;
+    },
+    teleport(x, y) {
+      world.player.x = x;
+      world.player.y = y;
+      world.camX = x;
+      world.camY = y;
+      if (world.player.car) {
+        world.player.car.x = x;
+        world.player.car.y = y;
+      }
+    },
+    giveCash(n) { world.player.cash += n; },
+    addHeat(n) { addHeat(world.wanted, n); },
+  };
+}
+window.__ready = true;
+requestAnimationFrame(frame);
+
+
+</script>
+</body>
+</html>

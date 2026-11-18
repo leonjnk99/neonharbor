@@ -9,6 +9,9 @@ export function makePlayer(x, y) {
     cash: ECONOMY.startCash,
     ammo: COMBAT.pistolAmmoStart,
     hasPistol: true,
+    weapon: 'pistol', // 'pistol' | 'shotgun' — the shotgun comes from a pickup
+    hasShotgun: false,
+    shotgunAmmo: 0,
     car: null, // the car being driven, or null on foot
     moving: false,
     punchTimer: 0,

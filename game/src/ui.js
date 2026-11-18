@@ -7,6 +7,7 @@ export function createUI(callbacks) {
       <div id="hud-top">
         <div id="hud-left">
           <div id="stars"></div>
+          <div id="missions"></div>
         </div>
         <div id="objective"></div>
         <div id="hud-right">
@@ -23,6 +24,13 @@ export function createUI(callbacks) {
       <div id="hint">WASD drive/walk &middot; E enter car &middot; F shoot &middot; Space handbrake &middot; Q use &middot; P pause &middot; M mute</div>
     </div>
     <div id="banner" class="hidden"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="mission-complete" class="hidden">
+      <div id="mc-title"></div>
+      <div id="mc-progress"></div>
+      <div id="mc-stats"></div>
+      <div id="mc-next"></div>
+      <div id="mc-dismiss">click to continue</div>
+    </div>
     <div id="screen-title" class="screen">
       <h1>NEON<span>HARBOR</span></h1>
       <p class="tagline">A driver-for-hire climbs the underworld of a coastal neon city.</p>
@@ -35,6 +43,7 @@ export function createUI(callbacks) {
         <p><b>Drive:</b> WASD / arrows &middot; <b>Enter car:</b> E &middot; <b>Handbrake:</b> Space</p>
         <p><b>Shoot:</b> F or click &middot; <b>Use place:</b> Q &middot; <b>Pause:</b> P &middot; <b>Mute:</b> M</p>
         <p>Take jobs at the <b>Lantern Bar</b>. Lose the cops at <b>Rook's Loft</b>. Repair at the <b>Pit Stop</b>, heal at the <b>Med Stop</b>, ammo at <b>Harbor Arms</b>. Sell a hot car at the <b>Chop Shop</b>.</p>
+        <p><b>Shotgun:</b> one hangs by the Harbor Arms door — spread fire, close range. Shell boxes are stashed on the avenues. Empty shells drop you back to the pistol.</p>
       </div>
       <p class="fine">An original game. No affiliation with any existing crime-game series.</p>
     </div>
@@ -84,10 +93,11 @@ export function createUI(callbacks) {
     setHUD(s) {
       el('stars').textContent = '★'.repeat(s.stars) + '☆'.repeat(5 - s.stars);
       el('stars').className = s.stars > 0 ? 'hot' : '';
+      el('missions').textContent = 'Jobs ' + s.missionsDone + '/' + s.missionsTotal;
       el('cash').textContent = '$' + s.cash.toLocaleString('en-US');
       el('health-bar').style.width = Math.max(0, s.health) + '%';
       el('health-text').textContent = Math.round(s.health) + ' HP';
-      el('ammo').textContent = s.hasPistol ? '🔫 ' + s.ammo : '👊 fists';
+      el('ammo').textContent = s.weapon === 'shotgun' ? '💥 ' + s.shotgunAmmo : (s.hasPistol ? '🔫 ' + s.ammo : '👊 fists');
       el('objective').textContent = s.objective || '';
       el('prompt').textContent = s.prompt || '';
     },
@@ -97,6 +107,15 @@ export function createUI(callbacks) {
       el('banner').classList.remove('hidden');
       clearTimeout(ui._bannerTimer);
       ui._bannerTimer = setTimeout(() => el('banner').classList.add('hidden'), (dur || 3) * 1000);
+    },
+    showMissionComplete(e) {
+      el('mc-title').textContent = e.title || 'Job done';
+      el('mc-progress').textContent = e.progress || '';
+      el('mc-stats').textContent = e.stats || '';
+      el('mc-next').textContent = e.next || '';
+      el('mission-complete').classList.remove('hidden');
+      clearTimeout(ui._mcTimer);
+      ui._mcTimer = setTimeout(() => el('mission-complete').classList.add('hidden'), 4000);
     },
     setMute(muted) {
       el('btn-mute').textContent = 'Mute: ' + (muted ? 'on' : 'off');
@@ -114,6 +133,7 @@ export function createUI(callbacks) {
 
   el('btn-new').addEventListener('click', () => callbacks.onNewGame());
   el('btn-continue').addEventListener('click', () => callbacks.onContinue());
+  el('mission-complete').addEventListener('click', () => el('mission-complete').classList.add('hidden'));
   el('btn-help').addEventListener('click', () => el('help').classList.toggle('hidden'));
   el('btn-resume').addEventListener('click', () => callbacks.onResume());
   el('btn-restart').addEventListener('click', () => callbacks.onRestart());

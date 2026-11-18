@@ -138,6 +138,10 @@ export function buildCity(seed) {
   const sunraySpot = { x: 896, y: 120, angle: Math.PI / 2, type: 'sport', color: '#f2c230', fixed: 'sunray' };
   parkedSpots.push(sunraySpot);
 
+  // The Marina lot holds the orange Comet for mission 8 (fixed spot).
+  const cometSpot = { x: 1949, y: 479, angle: Math.PI / 2, type: 'comet', color: '#ff6a3d', fixed: 'comet' };
+  parkedSpots.push(cometSpot);
+
   // Marina: the dock on the east edge, over the water line.
   zones.push({ name: 'marina', label: 'Marina', x: 2368, y: 896, r: 80, kind: 'marina' });
   // The bank vault is held at the bank's door (the building itself is solid).
@@ -157,6 +161,7 @@ export function buildCity(seed) {
     zones,
     parkedSpots,
     sunraySpot,
+    cometSpot,
     playerStart: { x: 320, y: 1400 },
   };
 

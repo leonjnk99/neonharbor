@@ -25,6 +25,7 @@ export const PLAYER = {
 export const CAR_TYPES = {
   sedan: { name: 'Sedan', maxSpeed: 390, accel: 300, grip: 0.9, w: 46, l: 84, colors: ['#c94f4f', '#4f7ec9', '#c9a44f', '#7a7f8c'] },
   sport: { name: 'Sunray', maxSpeed: 530, accel: 380, grip: 1.0, w: 44, l: 86, colors: ['#f2c230', '#e85d3d'] },
+  comet: { name: 'Comet', maxSpeed: 580, accel: 420, grip: 1.0, w: 44, l: 88, colors: ['#ff6a3d', '#2ec4b6'] },
   taxi: { name: 'Taxi', maxSpeed: 410, accel: 320, grip: 0.92, w: 46, l: 84, colors: ['#f2c230'] },
   van: { name: 'Van', maxSpeed: 330, accel: 250, grip: 0.8, w: 52, l: 96, colors: ['#8c8f96', '#5d7a5d'] },
   truck: { name: 'Hauler', maxSpeed: 300, accel: 220, grip: 0.75, w: 56, l: 110, colors: ['#6b5d8c', '#8c6b4f'] },
@@ -59,6 +60,15 @@ export const COMBAT = {
   pistolAmmoCount: 12,
   bulletSpeed: 950,
   bulletRange: 720,
+  // Shotgun: 5-pellet spread, close range, slow to pump. Shells come from
+  // pickups, never the shop — the pistol stays the workhorse.
+  shotgunDamage: 16,
+  shotgunInterval: 0.7,
+  shotgunPellets: 5,
+  shotgunSpread: 0.24,
+  shotgunRange: 460,
+  shotgunAmmoStart: 8,
+  shellsPerPickup: 6,
   guardHealth: 100,
   guardDamage: 8,
   guardInterval: 0.95,
@@ -123,6 +133,38 @@ export const MISSIONS = [
       { type: 'goto', label: 'Get inside the Harbor Bank', zone: 'bank' },
       { type: 'hold', label: 'Hold at the vault — crack it open', zone: 'vault', hold: 6 },
       { type: 'escape', label: 'Escape! Lose the heat, then reach the Loft', zone: 'loft' },
+    ],
+  },
+  {
+    id: 'gauntlet', name: 'Midnight Run', giver: 'Deke', reward: 500,
+    brief: 'A timed getaway chase: the patrol is already on you. Hit the Marina, then run the checkpoints — Depot, Chop Shop, Garage — before the clock dies.',
+    steps: [
+      { type: 'goto', label: 'Get to the Marina — the heat is already on', zone: 'marina', startWanted: 50 },
+      { type: 'checkpoint', label: 'Hit the checkpoints: Depot, Chop Shop, Garage — 100 seconds', zones: ['depot', 'chop', 'garage'], time: 100 },
+    ],
+  },
+  {
+    id: 'comet', name: 'The Comet Job', giver: 'Mara', reward: 600,
+    brief: 'An orange Comet — the fastest car in the harbor — sits in the Marina lot. Take it and bring it to the Chop Shop. It will not stay parked for long.',
+    steps: [
+      { type: 'steal', label: 'Steal the orange Comet from the Marina lot', car: 'comet' },
+      { type: 'deliverCar', label: 'Deliver the Comet to the Chop Shop', zone: 'chop', car: 'comet' },
+    ],
+  },
+  {
+    id: 'vip', name: 'The VIP', giver: 'Iris', reward: 400,
+    brief: 'A VIP at the Harbor Bank needs the Marina in forty-five seconds — and they will walk if a single cop looks at you. Drive fast. Drive clean.',
+    steps: [
+      { type: 'pickup', label: 'Pick up the VIP at the Harbor Bank', zone: 'bank', needsCar: true },
+      { type: 'deliver', label: 'VIP to the Marina — 45 seconds, and keep it clean: any heat fails the job', zone: 'marina', time: 45, noHeat: true },
+    ],
+  },
+  {
+    id: 'drops', name: 'The Collection', giver: 'Deke', reward: 550,
+    brief: 'Four cash drops stashed around the harbor — Depot, Marina, Chop Shop, Garage — two minutes to sweep them all, then bring the haul home to the Loft.',
+    steps: [
+      { type: 'checkpoint', label: 'Collect the cash drops: Depot, Marina, Chop Shop, Garage — 120 seconds', zones: ['depot', 'marina', 'chop', 'garage'], time: 120 },
+      { type: 'deliver', label: 'Bring the haul home to the Loft', zone: 'loft' },
     ],
   },
 ];

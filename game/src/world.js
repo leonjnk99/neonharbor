@@ -31,11 +31,13 @@ export function createWorld(seed, opts) {
     guards: [],
     bullets: makeBullets(),
     particles: makeParticles(),
+    pickups: [], // weapon pickups: { x, y, kind: 'shotgun'|'shells', taken }
     wanted: makeWanted(),
     missions: makeMissionState(),
     time: 0,
     playSeconds: 0,
     totalEarned: 0,
+    carsStolen: 0, // jacked NPC cars + stolen fixed cars (Sunray, Comet)
     state: 'title', // title | playing | paused | dead | busted | victory
     camX: 0,
     camY: 0,
@@ -73,11 +75,19 @@ export function createWorld(seed, opts) {
     world.guards = [];
     world.bullets = makeBullets();
     world.particles = makeParticles();
+    // Weapon pickups (fixed spots, one run each): the shotgun hangs by the
+    // Harbor Arms door; shell boxes sit on two avenues.
+    world.pickups = [
+      { x: 1350, y: 600, kind: 'shotgun', taken: false },
+      { x: 704, y: 256, kind: 'shells', taken: false },
+      { x: 1856, y: 1536, kind: 'shells', taken: false },
+    ];
     world.wanted = makeWanted();
     world.missions = makeMissionState();
     world.time = 0;
     world.playSeconds = 0;
     world.totalEarned = 0;
+    world.carsStolen = 0;
     world.state = 'playing';
     world.camX = world.player.x;
     world.camY = world.player.y;
@@ -116,10 +126,14 @@ export function createWorld(seed, opts) {
       cash: world.player.cash,
       ammo: world.player.ammo,
       health: world.player.health,
+      weapon: world.player.weapon,
+      hasShotgun: world.player.hasShotgun,
+      shotgunAmmo: world.player.shotgunAmmo,
       missionIndex: world.missions.index,
       completed: world.missions.completed,
       storyDone: world.missions.storyDone,
       totalEarned: world.totalEarned,
+      carsStolen: world.carsStolen,
       playSeconds: world.playSeconds,
       x: world.player.x,
       y: world.player.y,
@@ -131,12 +145,16 @@ export function createWorld(seed, opts) {
     world.player.cash = save.cash;
     world.player.ammo = save.ammo;
     world.player.health = save.health;
+    world.player.weapon = save.weapon || 'pistol';
+    world.player.hasShotgun = !!save.hasShotgun;
+    world.player.shotgunAmmo = save.shotgunAmmo || 0;
     world.player.x = save.x || world.city.playerStart.x;
     world.player.y = save.y || world.city.playerStart.y;
     world.missions.index = save.missionIndex || 0;
     world.missions.completed = save.completed || [];
     world.missions.storyDone = !!save.storyDone;
     world.totalEarned = save.totalEarned || 0;
+    world.carsStolen = save.carsStolen || 0;
     world.playSeconds = save.playSeconds || 0;
     world.camX = world.player.x;
     world.camY = world.player.y;
@@ -146,6 +164,18 @@ export function createWorld(seed, opts) {
     if (world.cars.some((c) => c.fixed === 'sunray')) return;
     const s = world.city.sunraySpot;
     world.cars.push(makeCar('sport', s.x, s.y, s.angle, world.rng, { color: '#f2c230', fixed: 'sunray' }));
+  };
+
+  world.ensureComet = function ensureComet() {
+    if (world.cars.some((c) => c.fixed === 'comet')) return;
+    const s = world.city.cometSpot;
+    world.cars.push(makeCar('comet', s.x, s.y, s.angle, world.rng, { color: '#ff6a3d', fixed: 'comet' }));
+  };
+
+  // Ensure the fixed car a 'steal' step names ('sunray' by default).
+  world.ensureFixedCar = function ensureFixedCar(id) {
+    if (id === 'comet') world.ensureComet();
+    else world.ensureSunray();
   };
 
   world.spawnTargetCar = function spawnTargetCar() {
@@ -193,7 +223,9 @@ export function createWorld(seed, opts) {
     }
     const car = nearestCar(world.cars, player.x, player.y, 72);
     if (!car) return;
-    if (car.driver === 'npc') {
+    const jacked = car.driver === 'npc';
+    const fixedTheft = car.fixed === 'sunray' || car.fixed === 'comet';
+    if (jacked) {
       // Pull the driver out: they flee on foot, the heat is on you.
       const driver = makePed(world.city, world.rng, car.x + 30, car.y + 30);
       driver.state = 'flee';
@@ -204,6 +236,12 @@ export function createWorld(seed, opts) {
       world.addHeat(30);
       world.banner('Car jacked', 'The Harbor PD was told. Lose them.', 2.5);
       world.emit('sfx', { name: 'crash', arg: 0.4 });
+    }
+    // Stolen-car stat: each jack counts once; each fixed mission car counts
+    // the first time it is taken.
+    if (jacked || (fixedTheft && !car.stolenCounted)) {
+      world.carsStolen += 1;
+      car.stolenCounted = true;
     }
     car.driver = 'player';
     player.car = car;
@@ -219,6 +257,24 @@ export function createWorld(seed, opts) {
     const fromY = player.car ? player.car.y : player.y;
     const angle = Math.atan2(wy - fromY, wx - fromX);
     player.angle = angle;
+    // Shotgun: a 5-pellet spread at close range. Empty shells drop back to
+    // the pistol on the next trigger pull.
+    if (player.weapon === 'shotgun' && player.shotgunAmmo > 0) {
+      player.shotgunAmmo -= 1;
+      player.shootTimer = COMBAT.shotgunInterval;
+      for (let i = 0; i < COMBAT.shotgunPellets; i += 1) {
+        const off = (i - (COMBAT.shotgunPellets - 1) / 2) * COMBAT.shotgunSpread + (world.rng() - 0.5) * 0.05;
+        fireBullet(world.bullets, fromX + Math.cos(angle) * 24, fromY + Math.sin(angle) * 24, angle + off, true, { dmg: COMBAT.shotgunDamage, range: COMBAT.shotgunRange });
+      }
+      world.lastShot = { x: fromX, y: fromY, r: 240, t: 0.6 };
+      world.addHeat(25);
+      world.emit('sfx', { name: 'shoot' });
+      world.shake = Math.min(1, world.shake + 0.3);
+      return;
+    }
+    if (player.weapon === 'shotgun' && player.shotgunAmmo <= 0) {
+      player.weapon = 'pistol';
+    }
     if (!player.hasPistol || player.ammo <= 0) {
       world.punch(angle);
       return;
@@ -407,6 +463,12 @@ export function createWorld(seed, opts) {
       w.objective = inst.def.name + ' — ' + step.label;
       if (step.type === 'follow' && inst.targetCar) {
         w.missionTarget = { x: inst.targetCar.x, y: inst.targetCar.y };
+        return;
+      }
+      if (step.type === 'checkpoint' && step.zones) {
+        const idx = inst.cpIndex || 0;
+        const zone = idx < step.zones.length ? w.city.zone(step.zones[idx]) : null;
+        if (zone) w.missionTarget = { x: zone.x, y: zone.y };
         return;
       }
       if (step.zone) {
@@ -628,7 +690,7 @@ export function createWorld(seed, opts) {
       if (hit.target === 'wall') continue;
       const t = hit.target;
       if (t.kind === 'guard') {
-        damageGuard(t.ref, COMBAT.pistolDamage);
+        damageGuard(t.ref, hit.dmg || COMBAT.pistolDamage);
         if (t.ref.dead) {
           addText(world.particles, t.ref.x, t.ref.y - 20, 'Guard down', '#ffd76a');
         }
@@ -640,7 +702,7 @@ export function createWorld(seed, opts) {
       } else if (t.kind === 'ped') {
         if (knockDown(t.ref, world.rng)) world.addHeat(40);
       } else if (t.kind === 'car') {
-        t.ref.health -= COMBAT.pistolDamage;
+        t.ref.health -= hit.dmg || COMBAT.pistolDamage;
         if (t.ref.health <= 0) {
           t.ref.health = 0;
           t.ref.dead = true;
@@ -723,6 +785,34 @@ export function createWorld(seed, opts) {
       }
     }
     updateWanted(world.wanted, dt, seen);
+
+    // Weapon pickups: walk over them to collect.
+    for (let i = 0; i < world.pickups.length; i += 1) {
+      const pk = world.pickups[i];
+      if (pk.taken) continue;
+      if (Math.hypot(pk.x - player.x, pk.y - player.y) > 34) continue;
+      if (pk.kind === 'shotgun') {
+        pk.taken = true;
+        player.hasShotgun = true;
+        player.weapon = 'shotgun';
+        player.shotgunAmmo += COMBAT.shotgunAmmoStart;
+        world.banner('Shotgun!', '+' + COMBAT.shotgunAmmoStart + ' shells — spread fire, close range. Empty shells drop back to the pistol.', 3);
+        world.emit('sfx', { name: 'pickup' });
+      } else if (pk.kind === 'shells') {
+        if (!player.hasShotgun) {
+          if (!pk.warned) {
+            pk.warned = true;
+            world.banner('Shotgun shells', 'You need a shotgun first — one hangs by the Harbor Arms door.', 2.5);
+          }
+          continue;
+        }
+        pk.taken = true;
+        player.shotgunAmmo += COMBAT.shellsPerPickup;
+        player.weapon = 'shotgun';
+        world.banner('Shells + ' + COMBAT.shellsPerPickup, 'Shotgun loaded.', 2);
+        world.emit('sfx', { name: 'pickup' });
+      }
+    }
 
     // Missions and side jobs.
     updateMission(world.missions, world, dt);

@@ -4,6 +4,7 @@
 import { createWorld } from './world.js';
 import { createInput } from './input.js';
 import { createUI } from './ui.js';
+import { MISSIONS } from './config.js';
 import { renderWorld } from './render.js';
 import { ensureAudio, setMuted, isMuted, sfx, updateEngine, updateSiren, startMusic } from './audio.js';
 import { applyShot } from './shots.js';
@@ -77,7 +78,7 @@ function showStateScreen(state) {
   } else if (state === 'busted') {
     ui.showScreen('busted');
   } else if (state === 'victory') {
-    ui.setVictoryStats(`All 6 story jobs done · $${world.totalEarned} earned · ${Math.round(world.playSeconds)}s in the harbor.`);
+    ui.setVictoryStats(`All ${world.missions.completed.length} story jobs done · $${world.totalEarned} earned · ${Math.round(world.playSeconds)}s in the harbor.`);
     ui.showScreen('victory');
   }
 }
@@ -87,6 +88,7 @@ function drainEvents() {
   for (let i = 0; i < events.length; i += 1) {
     const e = events[i];
     if (e.type === 'banner') ui.banner(e.title, e.sub, e.dur);
+    else if (e.type === 'missionComplete') ui.showMissionComplete(e);
     else if (e.type === 'state') showStateScreen(e.state);
     else if (e.type === 'sfx') sfx[e.name] && sfx[e.name](e.arg);
     else if (e.type === 'mute') {
@@ -138,6 +140,10 @@ function frame(now) {
       health: world.player.health,
       ammo: world.player.ammo,
       hasPistol: world.player.hasPistol,
+      weapon: world.player.weapon,
+      shotgunAmmo: world.player.shotgunAmmo,
+      missionsDone: world.missions.completed.length,
+      missionsTotal: MISSIONS.length,
       objective: world.objective,
       prompt: world.prompt,
     });

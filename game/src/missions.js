@@ -24,6 +24,7 @@ export function startMission(state, def, world) {
     spotted: 0,
     holdProgress: 0,
     lostTimer: 0,
+    cpIndex: 0, // checkpoint step: how many zones of step.zones are hit
     targetCar: null,
     started: world.time,
   };
@@ -33,7 +34,7 @@ export function startMission(state, def, world) {
     inst.targetCar = world.spawnTargetCar();
   }
   if (first.type === 'steal') {
-    world.ensureSunray();
+    world.ensureFixedCar(first.car);
   }
   if (def.id === 'heist') {
     world.spawnBankGuards();
@@ -57,7 +58,12 @@ export function completeMission(state, world) {
   if (state.index >= MISSIONS.length) state.storyDone = true;
   world.player.cash += inst.def.reward;
   world.totalEarned += inst.def.reward;
-  world.banner('Job done — $' + inst.def.reward, state.storyDone ? 'The harbor is yours, Rook.' : nextBrief(state), 3.5);
+  world.emit('missionComplete', {
+    title: 'Job done — $' + inst.def.reward,
+    progress: 'Missions ' + state.completed.length + '/' + MISSIONS.length,
+    stats: 'Jobs done ' + state.completed.length + ' · Cars stolen ' + (world.carsStolen || 0) + ' · Earned $' + world.totalEarned,
+    next: state.storyDone ? 'The harbor is yours, Rook.' : nextBrief(state),
+  });
   world.saveGame();
 }
 
@@ -114,7 +120,7 @@ export function updateMission(state, world, dt) {
     }
     case 'deliverCar': {
       const zone = stepZone(world, step.zone);
-      if (zone && player.car && player.car.fixed === 'sunray' && distTo(player, zone) < zone.r) {
+      if (zone && player.car && player.car.fixed === (step.car || 'sunray') && distTo(player, zone) < zone.r) {
         return advance(state, world);
       }
       break;
@@ -154,8 +160,26 @@ export function updateMission(state, world, dt) {
       break;
     }
     case 'deliver': {
+      if (step.noHeat && world.wanted.stars > 0) {
+        failMission(state, world, 'The VIP saw the cops — job blown');
+        return 'failed';
+      }
       const zone = stepZone(world, step.zone);
       if (zone && distTo(player, zone) < zone.r) return advance(state, world);
+      break;
+    }
+    case 'checkpoint': {
+      // Hit each zone in step.zones in order, before the step timer runs out.
+      const zones = step.zones || [];
+      const idx = inst.cpIndex || 0;
+      if (idx >= zones.length) return advance(state, world);
+      const zone = stepZone(world, zones[idx]);
+      if (zone && distTo(player, zone) < zone.r) {
+        inst.cpIndex = idx + 1;
+        if (inst.cpIndex >= zones.length) return advance(state, world);
+        const next = stepZone(world, zones[inst.cpIndex]);
+        world.banner('Checkpoint ' + inst.cpIndex + '/' + zones.length, next ? 'Next: ' + next.label : '', 2);
+      }
       break;
     }
     case 'hold': {
@@ -189,13 +213,14 @@ function advance(state, world) {
   inst.holdProgress = 0;
   inst.followProgress = 0;
   inst.lostTimer = 0;
+  inst.cpIndex = 0;
   if (inst.step >= inst.def.steps.length) {
     completeMission(state, world);
     return 'complete';
   }
   const next = inst.def.steps[inst.step];
   if (next.type === 'follow') inst.targetCar = world.spawnTargetCar();
-  if (next.type === 'steal') world.ensureSunray();
+  if (next.type === 'steal') world.ensureFixedCar(next.car);
   world.banner(inst.def.name, next.label, 3);
   return 'step';
 }

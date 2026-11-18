@@ -470,6 +470,35 @@ export function renderWorld(ctx, world, view) {
     ctx.fillText('$', job.x, job.y + 5);
   }
 
+  // Weapon pickups: pulsing gold crate with a label.
+  for (let i = 0; i < world.pickups.length; i += 1) {
+    const pk = world.pickups[i];
+    if (pk.taken) continue;
+    const pulse = 1 + 0.15 * Math.sin(time * 4 + i * 2);
+    ctx.save();
+    ctx.translate(pk.x, pk.y);
+    ctx.scale(pulse, pulse);
+    ctx.strokeStyle = '#ffd76a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(20,20,28,0.85)';
+    ctx.fillRect(-11, -8, 22, 16);
+    ctx.fillStyle = '#ffd76a';
+    if (pk.kind === 'shotgun') {
+      // Shotgun silhouette: barrel + stock.
+      ctx.fillRect(-9, -2, 16, 3);
+      ctx.fillRect(-9, 1, 6, 4);
+    } else {
+      // Shell box: three shells.
+      ctx.fillRect(-8, -4, 4, 8);
+      ctx.fillRect(-2, -4, 4, 8);
+      ctx.fillRect(4, -4, 4, 8);
+    }
+    ctx.restore();
+  }
+
   // Cars.
   for (let i = 0; i < world.cars.length; i += 1) {
     drawCar(ctx, world.cars[i], time);
@@ -712,10 +741,16 @@ function drawCar(ctx, car, time) {
     ctx.stroke();
   }
   // Sport: rear spoiler.
-  if (car.type === 'sport') {
+  if (car.type === 'sport' || car.type === 'comet') {
     ctx.fillStyle = '#14141a';
     roundRectPath(ctx, -l / 2 - 5, -wd / 2 + 3, 7, wd - 6, 2);
     ctx.fill();
+  }
+  // Comet: twin racing stripes down the body.
+  if (car.type === 'comet') {
+    ctx.fillStyle = 'rgba(20,20,28,0.55)';
+    ctx.fillRect(-l / 2 + 8, -9, l - 16, 4);
+    ctx.fillRect(-l / 2 + 8, 5, l - 16, 4);
   }
   // Headlights (front) and taillights (rear).
   ctx.fillStyle = '#ffe9a8';

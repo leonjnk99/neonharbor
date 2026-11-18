@@ -5,13 +5,15 @@ export function makeBullets() {
   return [];
 }
 
-export function fireBullet(bullets, x, y, angle, fromPlayer) {
+export function fireBullet(bullets, x, y, angle, fromPlayer, opts) {
+  const o = opts || {};
   bullets.push({
     x, y,
     vx: Math.cos(angle) * COMBAT.bulletSpeed,
     vy: Math.sin(angle) * COMBAT.bulletSpeed,
-    life: COMBAT.bulletRange / COMBAT.bulletSpeed,
+    life: (o.range || COMBAT.bulletRange) / COMBAT.bulletSpeed,
     fromPlayer,
+    dmg: o.dmg || COMBAT.pistolDamage,
   });
 }
 
@@ -27,13 +29,13 @@ export function stepBullets(bullets, dt, city, hitTest) {
     b.life -= dt;
     let dead = b.life <= 0;
     if (!dead && city.hitsBuilding(b.x, b.y, 2)) {
-      hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target: 'wall' });
+      hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target: 'wall', dmg: b.dmg });
       dead = true;
     }
     if (!dead && hitTest) {
       const target = hitTest(b);
       if (target) {
-        hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target });
+        hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target, dmg: b.dmg });
         dead = true;
       }
     }

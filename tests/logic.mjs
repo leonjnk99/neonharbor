@@ -331,7 +331,7 @@ console.log('NEONHARBOR logic tests');
 // 16. Heist mission can start (mission 6, index 5).
 {
   const world = createWorld(1, {});
-  check('config: 6 story missions', MISSIONS.length === 6, String(MISSIONS.length));
+  check('config: 10 story missions', MISSIONS.length === 10, String(MISSIONS.length));
   world.missions.index = 5;
   const input = mockInput();
   const bar = zonePos(world, 'bar');
@@ -341,6 +341,234 @@ console.log('NEONHARBOR logic tests');
   world.update(1 / 60, input);
   input.endStep();
   check('mission 6: starts, guards posted', world.missions.active && world.missions.active.def.id === 'heist' && world.guards.length === 3);
+}
+
+// 17. Mission 7 gauntlet: marina, then 3 checkpoints under 100s.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  world.missions.index = 6;
+  const bar = zonePos(world, 'bar');
+  world.player.x = bar.x;
+  world.player.y = bar.y;
+  input.press('q');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('mission 7: starts', world.missions.active && world.missions.active.def.id === 'gauntlet');
+  const marina = zonePos(world, 'marina');
+  world.player.x = marina.x;
+  world.player.y = marina.y;
+  world.update(1 / 60, input);
+  check('mission 7: reached marina, checkpoint step', world.missions.active && world.missions.active.step === 1, 'step ' + (world.missions.active && world.missions.active.step));
+  for (const z of ['depot', 'chop', 'garage']) {
+    const p = zonePos(world, z);
+    world.player.x = p.x;
+    world.player.y = p.y;
+    world.update(1 / 60, input);
+  }
+  check('mission 7: completes, $500 paid', world.missions.completed.includes('gauntlet') && world.player.cash === 120 + 500, `cash ${world.player.cash}`);
+  check('mission 7: next mission is the comet', world.missions.index === 7);
+}
+
+// 18. Mission 8 comet: the fast car is parked at boot; steal + deliver it.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  const comet = world.cars.find((c) => c.fixed === 'comet');
+  check('comet: parked in the Marina lot at boot', !!comet && comet.type === 'comet');
+  check('comet: fastest car in the harbor', !!comet && comet.maxSpeed === 580 && comet.maxSpeed > 530, comet ? String(comet.maxSpeed) : 'none');
+  world.missions.index = 7;
+  const bar = zonePos(world, 'bar');
+  world.player.x = bar.x;
+  world.player.y = bar.y;
+  input.press('q');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('mission 8: starts', world.missions.active && world.missions.active.def.id === 'comet');
+  world.player.x = comet.x + 10;
+  world.player.y = comet.y;
+  input.press('e');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('mission 8: driving the Comet, steal step done', world.player.car === comet && world.missions.active.step === 1, 'step ' + (world.missions.active && world.missions.active.step));
+  const chop = zonePos(world, 'chop');
+  teleportCar(world, chop.x, chop.y);
+  world.update(1 / 60, input);
+  check('mission 8: delivered, $600 paid', world.missions.completed.includes('comet') && world.player.cash === 120 + 600, `cash ${world.player.cash}`);
+}
+
+// 19. Mission 9 VIP: clean timed delivery, and heat fails it.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  world.missions.index = 8;
+  const bar = zonePos(world, 'bar');
+  world.player.x = bar.x;
+  world.player.y = bar.y;
+  input.press('q');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('mission 9: starts', world.missions.active && world.missions.active.def.id === 'vip');
+  const car = world.cars.find((c) => !c.driver);
+  world.player.x = car.x + 10;
+  world.player.y = car.y;
+  input.press('e');
+  world.update(1 / 60, input);
+  input.endStep();
+  const bank = zonePos(world, 'bank');
+  teleportCar(world, bank.x, bank.y);
+  world.update(1 / 60, input);
+  check('mission 9: VIP picked up', world.missions.active && world.missions.active.step === 1, 'step ' + (world.missions.active && world.missions.active.step));
+  const marina = zonePos(world, 'marina');
+  teleportCar(world, marina.x - 40, marina.y);
+  world.update(1 / 60, input);
+  check('mission 9: delivered clean, $400 paid', world.missions.completed.includes('vip') && world.player.cash === 120 + 400, `cash ${world.player.cash}`);
+  // A second run: any heat during the drop fails the job.
+  const world2 = createWorld(1, {});
+  const input2 = mockInput();
+  world2.missions.index = 8;
+  world2.player.x = bar.x;
+  world2.player.y = bar.y;
+  input2.press('q');
+  world2.update(1 / 60, input2);
+  input2.endStep();
+  const car2 = world2.cars.find((c) => !c.driver);
+  world2.player.x = car2.x + 10;
+  world2.player.y = car2.y;
+  input2.press('e');
+  world2.update(1 / 60, input2);
+  input2.endStep();
+  teleportCar(world2, bank.x, bank.y);
+  world2.update(1 / 60, input2);
+  world2.addHeat(25);
+  world2.update(1 / 60, input2);
+  check('mission 9: heat fails the VIP job', !world2.missions.active && !world2.missions.completed.includes('vip'));
+}
+
+// 20. Mission 10 drops: collect 4 drops, haul home, story done + victory.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  world.missions.index = 9;
+  const bar = zonePos(world, 'bar');
+  world.player.x = bar.x;
+  world.player.y = bar.y;
+  input.press('q');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('mission 10: starts', world.missions.active && world.missions.active.def.id === 'drops');
+  for (const z of ['depot', 'marina', 'chop', 'garage']) {
+    const p = zonePos(world, z);
+    world.player.x = p.x;
+    world.player.y = p.y;
+    world.update(1 / 60, input);
+  }
+  check('mission 10: drops collected, deliver step', world.missions.active && world.missions.active.step === 1, 'step ' + (world.missions.active && world.missions.active.step));
+  const loft = zonePos(world, 'loft');
+  world.player.x = loft.x;
+  world.player.y = loft.y;
+  world.update(1 / 60, input);
+  check('mission 10: haul home, $550 paid, story done', world.missions.completed.includes('drops') && world.missions.storyDone && world.player.cash === 120 + 550, `cash ${world.player.cash}`);
+  check('mission 10: victory screen', world.state === 'victory', world.state);
+}
+
+// 21. Shotgun: pickup grants it, one trigger pull fires 5 pellets.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  check('shotgun: pickup exists at Harbor Arms', world.pickups.some((p) => p.kind === 'shotgun' && !p.taken));
+  world.player.x = 1350;
+  world.player.y = 600;
+  world.update(1 / 60, input);
+  check('shotgun: picked up, 8 shells', world.player.hasShotgun && world.player.weapon === 'shotgun' && world.player.shotgunAmmo === 8, `weapon ${world.player.weapon} shells ${world.player.shotgunAmmo}`);
+  const pistolAmmo = world.player.ammo;
+  world.shootAt(1500, 600);
+  check('shotgun: 5 pellets, 1 shell spent, pistol untouched', world.bullets.length === 5 && world.player.shotgunAmmo === 7 && world.player.ammo === pistolAmmo, `bullets ${world.bullets.length} shells ${world.player.shotgunAmmo}`);
+  check('shotgun: pellets are short-range, low damage', world.bullets.every((b) => b.dmg === 16 && b.life < 0.6), `dmg ${world.bullets[0] && world.bullets[0].dmg} life ${world.bullets[0] && world.bullets[0].life.toFixed(2)}`);
+  for (let i = 0; i < 7; i += 1) {
+    world.player.shootTimer = 0;
+    world.shootAt(1500, 600);
+  }
+  check('shotgun: empty after 8 shells', world.player.shotgunAmmo === 0, String(world.player.shotgunAmmo));
+  world.player.shootTimer = 0;
+  world.shootAt(1500, 600);
+  check('shotgun: empty drops back to pistol', world.player.weapon === 'pistol' && world.player.ammo === pistolAmmo - 1, `weapon ${world.player.weapon} ammo ${world.player.ammo}`);
+}
+
+// 22. Shells: useless without the shotgun, +6 with it.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  const shells = world.pickups.find((p) => p.kind === 'shells');
+  world.player.x = shells.x;
+  world.player.y = shells.y;
+  world.update(1 / 60, input);
+  check('shells: not taken without the shotgun', !shells.taken && world.player.shotgunAmmo === 0);
+  world.player.x = 1350;
+  world.player.y = 600;
+  world.update(1 / 60, input);
+  world.player.x = shells.x;
+  world.player.y = shells.y;
+  world.update(1 / 60, input);
+  check('shells: +6 with the shotgun', shells.taken && world.player.shotgunAmmo === 8 + 6, String(world.player.shotgunAmmo));
+}
+
+// 23. Mission-complete event: progress + stats for the overlay.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  const bar = zonePos(world, 'bar');
+  world.player.x = bar.x;
+  world.player.y = bar.y;
+  input.press('q');
+  world.update(1 / 60, input);
+  input.endStep();
+  const car = world.cars.find((c) => !c.driver);
+  world.player.x = car.x + 10;
+  world.player.y = car.y;
+  input.press('e');
+  world.update(1 / 60, input);
+  input.endStep();
+  teleportCar(world, bar.x, bar.y);
+  world.update(1 / 60, input);
+  const marina = zonePos(world, 'marina');
+  teleportCar(world, marina.x - 40, marina.y);
+  world.update(1 / 60, input);
+  const ev = world.events.find((e) => e.type === 'missionComplete');
+  check('mission complete: event emitted', !!ev);
+  check('mission complete: progress 1/10 + stats', !!ev && ev.progress === 'Missions 1/10' && ev.stats.includes('Jobs done 1') && ev.stats.includes('Cars stolen') && ev.stats.includes('Earned $'), ev ? JSON.stringify(ev) : 'none');
+}
+
+// 24. Cars stolen: a jack counts; a fixed theft counts once.
+{
+  const world = createWorld(1, {});
+  const input = mockInput();
+  const t = world.traffic[0];
+  world.player.x = t.car.x + 10;
+  world.player.y = t.car.y;
+  input.press('e');
+  world.update(1 / 60, input);
+  input.endStep();
+  check('cars stolen: jacking counts', world.carsStolen === 1, String(world.carsStolen));
+  const world2 = createWorld(1, {});
+  const input2 = mockInput();
+  const sunray = world2.cars.find((c) => c.fixed === 'sunray');
+  world2.player.x = sunray.x + 10;
+  world2.player.y = sunray.y;
+  input2.press('e');
+  world2.update(1 / 60, input2);
+  input2.endStep();
+  check('cars stolen: Sunray theft counts', world2.carsStolen === 1, String(world2.carsStolen));
+  input2.press('e');
+  world2.update(1 / 60, input2);
+  input2.endStep();
+  check('cars stolen: exit works', world2.player.car === null);
+  world2.player.x = sunray.x + 10;
+  world2.player.y = sunray.y;
+  input2.press('e');
+  world2.update(1 / 60, input2);
+  input2.endStep();
+  check('cars stolen: re-entering the same car does not double count', world2.carsStolen === 1, String(world2.carsStolen));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

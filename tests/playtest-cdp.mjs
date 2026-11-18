@@ -109,6 +109,25 @@ try {
   const saveOk = await tab.eval(`(() => { try { return localStorage.getItem('neonharbor.save.v1') !== null; } catch (e) { return 'unavailable'; } })()`);
   console.log('  save in localStorage:', saveOk);
 
+  // HUD mission counter + mission-complete card.
+  const jobsText = await tab.eval(`document.getElementById('missions').textContent`);
+  check('HUD: Jobs 1/10', jobsText === 'Jobs 1/10', jobsText);
+  check('mission complete: card visible with progress', await tab.eval(`!document.getElementById('mission-complete').classList.contains('hidden') && document.getElementById('mc-progress').textContent === 'Missions 1/10'`));
+  const mcStats = await tab.eval(`document.getElementById('mc-stats').textContent`);
+  check('mission complete: stats line', mcStats.includes('Jobs done 1') && mcStats.includes('Cars stolen') && mcStats.includes('Earned $'), mcStats);
+
+  // Shotgun: pick it up at Harbor Arms, fire a spread.
+  await tab.eval(`window.__NEONHARBOR__.teleport(1350, 600)`);
+  await sleep(300);
+  check('shotgun: picked up', await tab.eval(`${W}.player.weapon === 'shotgun' && ${W}.player.shotgunAmmo === 8`));
+  const badge = await tab.eval(`document.getElementById('ammo').textContent`);
+  check('HUD: shotgun badge', badge.includes('💥'), badge);
+  await tab.mouseMove(900, 360);
+  const shells0 = await tab.eval(`${W}.player.shotgunAmmo`);
+  await tab.press('KeyF', 'f');
+  await sleep(200);
+  check('shotgun: 1 shell spent', await tab.eval(`${W}.player.shotgunAmmo === ${shells0 - 1}`));
+
   // Pause / resume.
   await tab.press('KeyP', 'p');
   await sleep(300);

@@ -20,6 +20,7 @@
   #hud-right { align-items: flex-end; }
   #stars { font-size: 26px; letter-spacing: 2px; color: #8a8f96; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
   #stars.hot { color: #ffd76a; }
+  #missions { font-size: 15px; font-weight: 800; letter-spacing: 1px; color: #f5f0e6; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
   #cash { font-size: 24px; font-weight: 800; color: #ffd76a; text-shadow: 0 2px 6px rgba(0,0,0,.7); text-align: right; }
   #objective { flex: 1; text-align: center; font-size: 15px; font-weight: 600; color: #ffe9a8; text-shadow: 0 2px 6px rgba(0,0,0,.8); padding-top: 6px; }
   #hud-cluster { display: flex; flex-direction: row; align-items: flex-start; gap: 10px; }
@@ -37,6 +38,14 @@
   #banner { position: absolute; top: 18%; left: 0; right: 0; text-align: center; }
   #banner-title { font-size: 44px; font-weight: 900; letter-spacing: 2px; color: #ffd76a; text-shadow: 0 3px 12px rgba(0,0,0,.85); }
   #banner-sub { font-size: 18px; color: #f5f0e6; text-shadow: 0 2px 8px rgba(0,0,0,.85); margin-top: 6px; }
+
+  /* Mission-complete card: progress + stats, dismiss on click or after 4s. */
+  #mission-complete { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; background: rgba(8,8,18,.92); border: 2px solid #ffd76a; border-radius: 14px; padding: 22px 34px; box-shadow: 0 8px 32px rgba(0,0,0,.8); pointer-events: auto; cursor: pointer; }
+  #mc-title { font-size: 34px; font-weight: 900; letter-spacing: 2px; color: #ffd76a; text-shadow: 0 3px 10px rgba(0,0,0,.85); }
+  #mc-progress { font-size: 22px; font-weight: 800; color: #7ee8fa; margin-top: 8px; }
+  #mc-stats { font-size: 16px; color: #f5f0e6; margin-top: 8px; }
+  #mc-next { font-size: 15px; color: #c8c4d8; margin-top: 8px; }
+  #mc-dismiss { font-size: 12px; color: rgba(245,240,230,.5); margin-top: 12px; }
 
   /* Screens */
   .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: radial-gradient(ellipse at 50% 35%, rgba(60,20,90,.88), rgba(8,8,18,.96)); pointer-events: auto; text-align: center; padding: 24px; }
@@ -89,6 +98,7 @@ const PLAYER = {
 const CAR_TYPES = {
   sedan: { name: 'Sedan', maxSpeed: 390, accel: 300, grip: 0.9, w: 46, l: 84, colors: ['#c94f4f', '#4f7ec9', '#c9a44f', '#7a7f8c'] },
   sport: { name: 'Sunray', maxSpeed: 530, accel: 380, grip: 1.0, w: 44, l: 86, colors: ['#f2c230', '#e85d3d'] },
+  comet: { name: 'Comet', maxSpeed: 580, accel: 420, grip: 1.0, w: 44, l: 88, colors: ['#ff6a3d', '#2ec4b6'] },
   taxi: { name: 'Taxi', maxSpeed: 410, accel: 320, grip: 0.92, w: 46, l: 84, colors: ['#f2c230'] },
   van: { name: 'Van', maxSpeed: 330, accel: 250, grip: 0.8, w: 52, l: 96, colors: ['#8c8f96', '#5d7a5d'] },
   truck: { name: 'Hauler', maxSpeed: 300, accel: 220, grip: 0.75, w: 56, l: 110, colors: ['#6b5d8c', '#8c6b4f'] },
@@ -123,6 +133,15 @@ const COMBAT = {
   pistolAmmoCount: 12,
   bulletSpeed: 950,
   bulletRange: 720,
+  // Shotgun: 5-pellet spread, close range, slow to pump. Shells come from
+  // pickups, never the shop — the pistol stays the workhorse.
+  shotgunDamage: 16,
+  shotgunInterval: 0.7,
+  shotgunPellets: 5,
+  shotgunSpread: 0.24,
+  shotgunRange: 460,
+  shotgunAmmoStart: 8,
+  shellsPerPickup: 6,
   guardHealth: 100,
   guardDamage: 8,
   guardInterval: 0.95,
@@ -187,6 +206,38 @@ const MISSIONS = [
       { type: 'goto', label: 'Get inside the Harbor Bank', zone: 'bank' },
       { type: 'hold', label: 'Hold at the vault — crack it open', zone: 'vault', hold: 6 },
       { type: 'escape', label: 'Escape! Lose the heat, then reach the Loft', zone: 'loft' },
+    ],
+  },
+  {
+    id: 'gauntlet', name: 'Midnight Run', giver: 'Deke', reward: 500,
+    brief: 'A timed getaway chase: the patrol is already on you. Hit the Marina, then run the checkpoints — Depot, Chop Shop, Garage — before the clock dies.',
+    steps: [
+      { type: 'goto', label: 'Get to the Marina — the heat is already on', zone: 'marina', startWanted: 50 },
+      { type: 'checkpoint', label: 'Hit the checkpoints: Depot, Chop Shop, Garage — 100 seconds', zones: ['depot', 'chop', 'garage'], time: 100 },
+    ],
+  },
+  {
+    id: 'comet', name: 'The Comet Job', giver: 'Mara', reward: 600,
+    brief: 'An orange Comet — the fastest car in the harbor — sits in the Marina lot. Take it and bring it to the Chop Shop. It will not stay parked for long.',
+    steps: [
+      { type: 'steal', label: 'Steal the orange Comet from the Marina lot', car: 'comet' },
+      { type: 'deliverCar', label: 'Deliver the Comet to the Chop Shop', zone: 'chop', car: 'comet' },
+    ],
+  },
+  {
+    id: 'vip', name: 'The VIP', giver: 'Iris', reward: 400,
+    brief: 'A VIP at the Harbor Bank needs the Marina in forty-five seconds — and they will walk if a single cop looks at you. Drive fast. Drive clean.',
+    steps: [
+      { type: 'pickup', label: 'Pick up the VIP at the Harbor Bank', zone: 'bank', needsCar: true },
+      { type: 'deliver', label: 'VIP to the Marina — 45 seconds, and keep it clean: any heat fails the job', zone: 'marina', time: 45, noHeat: true },
+    ],
+  },
+  {
+    id: 'drops', name: 'The Collection', giver: 'Deke', reward: 550,
+    brief: 'Four cash drops stashed around the harbor — Depot, Marina, Chop Shop, Garage — two minutes to sweep them all, then bring the haul home to the Loft.',
+    steps: [
+      { type: 'checkpoint', label: 'Collect the cash drops: Depot, Marina, Chop Shop, Garage — 120 seconds', zones: ['depot', 'marina', 'chop', 'garage'], time: 120 },
+      { type: 'deliver', label: 'Bring the haul home to the Loft', zone: 'loft' },
     ],
   },
 ];
@@ -671,6 +722,10 @@ function buildCity(seed) {
   const sunraySpot = { x: 896, y: 120, angle: Math.PI / 2, type: 'sport', color: '#f2c230', fixed: 'sunray' };
   parkedSpots.push(sunraySpot);
 
+  // The Marina lot holds the orange Comet for mission 8 (fixed spot).
+  const cometSpot = { x: 1949, y: 479, angle: Math.PI / 2, type: 'comet', color: '#ff6a3d', fixed: 'comet' };
+  parkedSpots.push(cometSpot);
+
   // Marina: the dock on the east edge, over the water line.
   zones.push({ name: 'marina', label: 'Marina', x: 2368, y: 896, r: 80, kind: 'marina' });
   // The bank vault is held at the bank's door (the building itself is solid).
@@ -690,6 +745,7 @@ function buildCity(seed) {
     zones,
     parkedSpots,
     sunraySpot,
+    cometSpot,
     playerStart: { x: 320, y: 1400 },
   };
 
@@ -947,6 +1003,9 @@ function makePlayer(x, y) {
     cash: ECONOMY.startCash,
     ammo: COMBAT.pistolAmmoStart,
     hasPistol: true,
+    weapon: 'pistol', // 'pistol' | 'shotgun' — the shotgun comes from a pickup
+    hasShotgun: false,
+    shotgunAmmo: 0,
     car: null, // the car being driven, or null on foot
     moving: false,
     punchTimer: 0,
@@ -1356,13 +1415,15 @@ function makeBullets() {
   return [];
 }
 
-function fireBullet(bullets, x, y, angle, fromPlayer) {
+function fireBullet(bullets, x, y, angle, fromPlayer, opts) {
+  const o = opts || {};
   bullets.push({
     x, y,
     vx: Math.cos(angle) * COMBAT.bulletSpeed,
     vy: Math.sin(angle) * COMBAT.bulletSpeed,
-    life: COMBAT.bulletRange / COMBAT.bulletSpeed,
+    life: (o.range || COMBAT.bulletRange) / COMBAT.bulletSpeed,
     fromPlayer,
+    dmg: o.dmg || COMBAT.pistolDamage,
   });
 }
 
@@ -1378,13 +1439,13 @@ function stepBullets(bullets, dt, city, hitTest) {
     b.life -= dt;
     let dead = b.life <= 0;
     if (!dead && city.hitsBuilding(b.x, b.y, 2)) {
-      hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target: 'wall' });
+      hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target: 'wall', dmg: b.dmg });
       dead = true;
     }
     if (!dead && hitTest) {
       const target = hitTest(b);
       if (target) {
-        hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target });
+        hits.push({ x: b.x, y: b.y, fromPlayer: b.fromPlayer, target, dmg: b.dmg });
         dead = true;
       }
     }
@@ -1464,6 +1525,7 @@ function startMission(state, def, world) {
     spotted: 0,
     holdProgress: 0,
     lostTimer: 0,
+    cpIndex: 0, // checkpoint step: how many zones of step.zones are hit
     targetCar: null,
     started: world.time,
   };
@@ -1473,7 +1535,7 @@ function startMission(state, def, world) {
     inst.targetCar = world.spawnTargetCar();
   }
   if (first.type === 'steal') {
-    world.ensureSunray();
+    world.ensureFixedCar(first.car);
   }
   if (def.id === 'heist') {
     world.spawnBankGuards();
@@ -1497,7 +1559,12 @@ function completeMission(state, world) {
   if (state.index >= MISSIONS.length) state.storyDone = true;
   world.player.cash += inst.def.reward;
   world.totalEarned += inst.def.reward;
-  world.banner('Job done — $' + inst.def.reward, state.storyDone ? 'The harbor is yours, Rook.' : nextBrief(state), 3.5);
+  world.emit('missionComplete', {
+    title: 'Job done — $' + inst.def.reward,
+    progress: 'Missions ' + state.completed.length + '/' + MISSIONS.length,
+    stats: 'Jobs done ' + state.completed.length + ' · Cars stolen ' + (world.carsStolen || 0) + ' · Earned $' + world.totalEarned,
+    next: state.storyDone ? 'The harbor is yours, Rook.' : nextBrief(state),
+  });
   world.saveGame();
 }
 
@@ -1554,7 +1621,7 @@ function updateMission(state, world, dt) {
     }
     case 'deliverCar': {
       const zone = stepZone(world, step.zone);
-      if (zone && player.car && player.car.fixed === 'sunray' && distTo(player, zone) < zone.r) {
+      if (zone && player.car && player.car.fixed === (step.car || 'sunray') && distTo(player, zone) < zone.r) {
         return advance(state, world);
       }
       break;
@@ -1594,8 +1661,26 @@ function updateMission(state, world, dt) {
       break;
     }
     case 'deliver': {
+      if (step.noHeat && world.wanted.stars > 0) {
+        failMission(state, world, 'The VIP saw the cops — job blown');
+        return 'failed';
+      }
       const zone = stepZone(world, step.zone);
       if (zone && distTo(player, zone) < zone.r) return advance(state, world);
+      break;
+    }
+    case 'checkpoint': {
+      // Hit each zone in step.zones in order, before the step timer runs out.
+      const zones = step.zones || [];
+      const idx = inst.cpIndex || 0;
+      if (idx >= zones.length) return advance(state, world);
+      const zone = stepZone(world, zones[idx]);
+      if (zone && distTo(player, zone) < zone.r) {
+        inst.cpIndex = idx + 1;
+        if (inst.cpIndex >= zones.length) return advance(state, world);
+        const next = stepZone(world, zones[inst.cpIndex]);
+        world.banner('Checkpoint ' + inst.cpIndex + '/' + zones.length, next ? 'Next: ' + next.label : '', 2);
+      }
       break;
     }
     case 'hold': {
@@ -1629,13 +1714,14 @@ function advance(state, world) {
   inst.holdProgress = 0;
   inst.followProgress = 0;
   inst.lostTimer = 0;
+  inst.cpIndex = 0;
   if (inst.step >= inst.def.steps.length) {
     completeMission(state, world);
     return 'complete';
   }
   const next = inst.def.steps[inst.step];
   if (next.type === 'follow') inst.targetCar = world.spawnTargetCar();
-  if (next.type === 'steal') world.ensureSunray();
+  if (next.type === 'steal') world.ensureFixedCar(next.car);
   world.banner(inst.def.name, next.label, 3);
   return 'step';
 }
@@ -2297,6 +2383,35 @@ function renderWorld(ctx, world, view) {
     ctx.fillText('$', job.x, job.y + 5);
   }
 
+  // Weapon pickups: pulsing gold crate with a label.
+  for (let i = 0; i < world.pickups.length; i += 1) {
+    const pk = world.pickups[i];
+    if (pk.taken) continue;
+    const pulse = 1 + 0.15 * Math.sin(time * 4 + i * 2);
+    ctx.save();
+    ctx.translate(pk.x, pk.y);
+    ctx.scale(pulse, pulse);
+    ctx.strokeStyle = '#ffd76a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(20,20,28,0.85)';
+    ctx.fillRect(-11, -8, 22, 16);
+    ctx.fillStyle = '#ffd76a';
+    if (pk.kind === 'shotgun') {
+      // Shotgun silhouette: barrel + stock.
+      ctx.fillRect(-9, -2, 16, 3);
+      ctx.fillRect(-9, 1, 6, 4);
+    } else {
+      // Shell box: three shells.
+      ctx.fillRect(-8, -4, 4, 8);
+      ctx.fillRect(-2, -4, 4, 8);
+      ctx.fillRect(4, -4, 4, 8);
+    }
+    ctx.restore();
+  }
+
   // Cars.
   for (let i = 0; i < world.cars.length; i += 1) {
     drawCar(ctx, world.cars[i], time);
@@ -2539,10 +2654,16 @@ function drawCar(ctx, car, time) {
     ctx.stroke();
   }
   // Sport: rear spoiler.
-  if (car.type === 'sport') {
+  if (car.type === 'sport' || car.type === 'comet') {
     ctx.fillStyle = '#14141a';
     roundRectPath(ctx, -l / 2 - 5, -wd / 2 + 3, 7, wd - 6, 2);
     ctx.fill();
+  }
+  // Comet: twin racing stripes down the body.
+  if (car.type === 'comet') {
+    ctx.fillStyle = 'rgba(20,20,28,0.55)';
+    ctx.fillRect(-l / 2 + 8, -9, l - 16, 4);
+    ctx.fillRect(-l / 2 + 8, 5, l - 16, 4);
   }
   // Headlights (front) and taillights (rear).
   ctx.fillStyle = '#ffe9a8';
@@ -2699,6 +2820,7 @@ function createUI(callbacks) {
       <div id="hud-top">
         <div id="hud-left">
           <div id="stars"></div>
+          <div id="missions"></div>
         </div>
         <div id="objective"></div>
         <div id="hud-right">
@@ -2715,6 +2837,13 @@ function createUI(callbacks) {
       <div id="hint">WASD drive/walk &middot; E enter car &middot; F shoot &middot; Space handbrake &middot; Q use &middot; P pause &middot; M mute</div>
     </div>
     <div id="banner" class="hidden"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="mission-complete" class="hidden">
+      <div id="mc-title"></div>
+      <div id="mc-progress"></div>
+      <div id="mc-stats"></div>
+      <div id="mc-next"></div>
+      <div id="mc-dismiss">click to continue</div>
+    </div>
     <div id="screen-title" class="screen">
       <h1>NEON<span>HARBOR</span></h1>
       <p class="tagline">A driver-for-hire climbs the underworld of a coastal neon city.</p>
@@ -2727,6 +2856,7 @@ function createUI(callbacks) {
         <p><b>Drive:</b> WASD / arrows &middot; <b>Enter car:</b> E &middot; <b>Handbrake:</b> Space</p>
         <p><b>Shoot:</b> F or click &middot; <b>Use place:</b> Q &middot; <b>Pause:</b> P &middot; <b>Mute:</b> M</p>
         <p>Take jobs at the <b>Lantern Bar</b>. Lose the cops at <b>Rook's Loft</b>. Repair at the <b>Pit Stop</b>, heal at the <b>Med Stop</b>, ammo at <b>Harbor Arms</b>. Sell a hot car at the <b>Chop Shop</b>.</p>
+        <p><b>Shotgun:</b> one hangs by the Harbor Arms door — spread fire, close range. Shell boxes are stashed on the avenues. Empty shells drop you back to the pistol.</p>
       </div>
       <p class="fine">An original game. No affiliation with any existing crime-game series.</p>
     </div>
@@ -2776,10 +2906,11 @@ function createUI(callbacks) {
     setHUD(s) {
       el('stars').textContent = '★'.repeat(s.stars) + '☆'.repeat(5 - s.stars);
       el('stars').className = s.stars > 0 ? 'hot' : '';
+      el('missions').textContent = 'Jobs ' + s.missionsDone + '/' + s.missionsTotal;
       el('cash').textContent = '$' + s.cash.toLocaleString('en-US');
       el('health-bar').style.width = Math.max(0, s.health) + '%';
       el('health-text').textContent = Math.round(s.health) + ' HP';
-      el('ammo').textContent = s.hasPistol ? '🔫 ' + s.ammo : '👊 fists';
+      el('ammo').textContent = s.weapon === 'shotgun' ? '💥 ' + s.shotgunAmmo : (s.hasPistol ? '🔫 ' + s.ammo : '👊 fists');
       el('objective').textContent = s.objective || '';
       el('prompt').textContent = s.prompt || '';
     },
@@ -2789,6 +2920,15 @@ function createUI(callbacks) {
       el('banner').classList.remove('hidden');
       clearTimeout(ui._bannerTimer);
       ui._bannerTimer = setTimeout(() => el('banner').classList.add('hidden'), (dur || 3) * 1000);
+    },
+    showMissionComplete(e) {
+      el('mc-title').textContent = e.title || 'Job done';
+      el('mc-progress').textContent = e.progress || '';
+      el('mc-stats').textContent = e.stats || '';
+      el('mc-next').textContent = e.next || '';
+      el('mission-complete').classList.remove('hidden');
+      clearTimeout(ui._mcTimer);
+      ui._mcTimer = setTimeout(() => el('mission-complete').classList.add('hidden'), 4000);
     },
     setMute(muted) {
       el('btn-mute').textContent = 'Mute: ' + (muted ? 'on' : 'off');
@@ -2806,6 +2946,7 @@ function createUI(callbacks) {
 
   el('btn-new').addEventListener('click', () => callbacks.onNewGame());
   el('btn-continue').addEventListener('click', () => callbacks.onContinue());
+  el('mission-complete').addEventListener('click', () => el('mission-complete').classList.add('hidden'));
   el('btn-help').addEventListener('click', () => el('help').classList.toggle('hidden'));
   el('btn-resume').addEventListener('click', () => callbacks.onResume());
   el('btn-restart').addEventListener('click', () => callbacks.onRestart());
@@ -2915,11 +3056,13 @@ function createWorld(seed, opts) {
     guards: [],
     bullets: makeBullets(),
     particles: makeParticles(),
+    pickups: [], // weapon pickups: { x, y, kind: 'shotgun'|'shells', taken }
     wanted: makeWanted(),
     missions: makeMissionState(),
     time: 0,
     playSeconds: 0,
     totalEarned: 0,
+    carsStolen: 0, // jacked NPC cars + stolen fixed cars (Sunray, Comet)
     state: 'title', // title | playing | paused | dead | busted | victory
     camX: 0,
     camY: 0,
@@ -2957,11 +3100,19 @@ function createWorld(seed, opts) {
     world.guards = [];
     world.bullets = makeBullets();
     world.particles = makeParticles();
+    // Weapon pickups (fixed spots, one run each): the shotgun hangs by the
+    // Harbor Arms door; shell boxes sit on two avenues.
+    world.pickups = [
+      { x: 1350, y: 600, kind: 'shotgun', taken: false },
+      { x: 704, y: 256, kind: 'shells', taken: false },
+      { x: 1856, y: 1536, kind: 'shells', taken: false },
+    ];
     world.wanted = makeWanted();
     world.missions = makeMissionState();
     world.time = 0;
     world.playSeconds = 0;
     world.totalEarned = 0;
+    world.carsStolen = 0;
     world.state = 'playing';
     world.camX = world.player.x;
     world.camY = world.player.y;
@@ -3000,10 +3151,14 @@ function createWorld(seed, opts) {
       cash: world.player.cash,
       ammo: world.player.ammo,
       health: world.player.health,
+      weapon: world.player.weapon,
+      hasShotgun: world.player.hasShotgun,
+      shotgunAmmo: world.player.shotgunAmmo,
       missionIndex: world.missions.index,
       completed: world.missions.completed,
       storyDone: world.missions.storyDone,
       totalEarned: world.totalEarned,
+      carsStolen: world.carsStolen,
       playSeconds: world.playSeconds,
       x: world.player.x,
       y: world.player.y,
@@ -3015,12 +3170,16 @@ function createWorld(seed, opts) {
     world.player.cash = save.cash;
     world.player.ammo = save.ammo;
     world.player.health = save.health;
+    world.player.weapon = save.weapon || 'pistol';
+    world.player.hasShotgun = !!save.hasShotgun;
+    world.player.shotgunAmmo = save.shotgunAmmo || 0;
     world.player.x = save.x || world.city.playerStart.x;
     world.player.y = save.y || world.city.playerStart.y;
     world.missions.index = save.missionIndex || 0;
     world.missions.completed = save.completed || [];
     world.missions.storyDone = !!save.storyDone;
     world.totalEarned = save.totalEarned || 0;
+    world.carsStolen = save.carsStolen || 0;
     world.playSeconds = save.playSeconds || 0;
     world.camX = world.player.x;
     world.camY = world.player.y;
@@ -3030,6 +3189,18 @@ function createWorld(seed, opts) {
     if (world.cars.some((c) => c.fixed === 'sunray')) return;
     const s = world.city.sunraySpot;
     world.cars.push(makeCar('sport', s.x, s.y, s.angle, world.rng, { color: '#f2c230', fixed: 'sunray' }));
+  };
+
+  world.ensureComet = function ensureComet() {
+    if (world.cars.some((c) => c.fixed === 'comet')) return;
+    const s = world.city.cometSpot;
+    world.cars.push(makeCar('comet', s.x, s.y, s.angle, world.rng, { color: '#ff6a3d', fixed: 'comet' }));
+  };
+
+  // Ensure the fixed car a 'steal' step names ('sunray' by default).
+  world.ensureFixedCar = function ensureFixedCar(id) {
+    if (id === 'comet') world.ensureComet();
+    else world.ensureSunray();
   };
 
   world.spawnTargetCar = function spawnTargetCar() {
@@ -3077,7 +3248,9 @@ function createWorld(seed, opts) {
     }
     const car = nearestCar(world.cars, player.x, player.y, 72);
     if (!car) return;
-    if (car.driver === 'npc') {
+    const jacked = car.driver === 'npc';
+    const fixedTheft = car.fixed === 'sunray' || car.fixed === 'comet';
+    if (jacked) {
       // Pull the driver out: they flee on foot, the heat is on you.
       const driver = makePed(world.city, world.rng, car.x + 30, car.y + 30);
       driver.state = 'flee';
@@ -3088,6 +3261,12 @@ function createWorld(seed, opts) {
       world.addHeat(30);
       world.banner('Car jacked', 'The Harbor PD was told. Lose them.', 2.5);
       world.emit('sfx', { name: 'crash', arg: 0.4 });
+    }
+    // Stolen-car stat: each jack counts once; each fixed mission car counts
+    // the first time it is taken.
+    if (jacked || (fixedTheft && !car.stolenCounted)) {
+      world.carsStolen += 1;
+      car.stolenCounted = true;
     }
     car.driver = 'player';
     player.car = car;
@@ -3103,6 +3282,24 @@ function createWorld(seed, opts) {
     const fromY = player.car ? player.car.y : player.y;
     const angle = Math.atan2(wy - fromY, wx - fromX);
     player.angle = angle;
+    // Shotgun: a 5-pellet spread at close range. Empty shells drop back to
+    // the pistol on the next trigger pull.
+    if (player.weapon === 'shotgun' && player.shotgunAmmo > 0) {
+      player.shotgunAmmo -= 1;
+      player.shootTimer = COMBAT.shotgunInterval;
+      for (let i = 0; i < COMBAT.shotgunPellets; i += 1) {
+        const off = (i - (COMBAT.shotgunPellets - 1) / 2) * COMBAT.shotgunSpread + (world.rng() - 0.5) * 0.05;
+        fireBullet(world.bullets, fromX + Math.cos(angle) * 24, fromY + Math.sin(angle) * 24, angle + off, true, { dmg: COMBAT.shotgunDamage, range: COMBAT.shotgunRange });
+      }
+      world.lastShot = { x: fromX, y: fromY, r: 240, t: 0.6 };
+      world.addHeat(25);
+      world.emit('sfx', { name: 'shoot' });
+      world.shake = Math.min(1, world.shake + 0.3);
+      return;
+    }
+    if (player.weapon === 'shotgun' && player.shotgunAmmo <= 0) {
+      player.weapon = 'pistol';
+    }
     if (!player.hasPistol || player.ammo <= 0) {
       world.punch(angle);
       return;
@@ -3291,6 +3488,12 @@ function createWorld(seed, opts) {
       w.objective = inst.def.name + ' — ' + step.label;
       if (step.type === 'follow' && inst.targetCar) {
         w.missionTarget = { x: inst.targetCar.x, y: inst.targetCar.y };
+        return;
+      }
+      if (step.type === 'checkpoint' && step.zones) {
+        const idx = inst.cpIndex || 0;
+        const zone = idx < step.zones.length ? w.city.zone(step.zones[idx]) : null;
+        if (zone) w.missionTarget = { x: zone.x, y: zone.y };
         return;
       }
       if (step.zone) {
@@ -3512,7 +3715,7 @@ function createWorld(seed, opts) {
       if (hit.target === 'wall') continue;
       const t = hit.target;
       if (t.kind === 'guard') {
-        damageGuard(t.ref, COMBAT.pistolDamage);
+        damageGuard(t.ref, hit.dmg || COMBAT.pistolDamage);
         if (t.ref.dead) {
           addText(world.particles, t.ref.x, t.ref.y - 20, 'Guard down', '#ffd76a');
         }
@@ -3524,7 +3727,7 @@ function createWorld(seed, opts) {
       } else if (t.kind === 'ped') {
         if (knockDown(t.ref, world.rng)) world.addHeat(40);
       } else if (t.kind === 'car') {
-        t.ref.health -= COMBAT.pistolDamage;
+        t.ref.health -= hit.dmg || COMBAT.pistolDamage;
         if (t.ref.health <= 0) {
           t.ref.health = 0;
           t.ref.dead = true;
@@ -3607,6 +3810,34 @@ function createWorld(seed, opts) {
       }
     }
     updateWanted(world.wanted, dt, seen);
+
+    // Weapon pickups: walk over them to collect.
+    for (let i = 0; i < world.pickups.length; i += 1) {
+      const pk = world.pickups[i];
+      if (pk.taken) continue;
+      if (Math.hypot(pk.x - player.x, pk.y - player.y) > 34) continue;
+      if (pk.kind === 'shotgun') {
+        pk.taken = true;
+        player.hasShotgun = true;
+        player.weapon = 'shotgun';
+        player.shotgunAmmo += COMBAT.shotgunAmmoStart;
+        world.banner('Shotgun!', '+' + COMBAT.shotgunAmmoStart + ' shells — spread fire, close range. Empty shells drop back to the pistol.', 3);
+        world.emit('sfx', { name: 'pickup' });
+      } else if (pk.kind === 'shells') {
+        if (!player.hasShotgun) {
+          if (!pk.warned) {
+            pk.warned = true;
+            world.banner('Shotgun shells', 'You need a shotgun first — one hangs by the Harbor Arms door.', 2.5);
+          }
+          continue;
+        }
+        pk.taken = true;
+        player.shotgunAmmo += COMBAT.shellsPerPickup;
+        player.weapon = 'shotgun';
+        world.banner('Shells + ' + COMBAT.shellsPerPickup, 'Shotgun loaded.', 2);
+        world.emit('sfx', { name: 'pickup' });
+      }
+    }
 
     // Missions and side jobs.
     updateMission(world.missions, world, dt);
@@ -3725,7 +3956,7 @@ function showStateScreen(state) {
   } else if (state === 'busted') {
     ui.showScreen('busted');
   } else if (state === 'victory') {
-    ui.setVictoryStats(`All 6 story jobs done · $${world.totalEarned} earned · ${Math.round(world.playSeconds)}s in the harbor.`);
+    ui.setVictoryStats(`All ${world.missions.completed.length} story jobs done · $${world.totalEarned} earned · ${Math.round(world.playSeconds)}s in the harbor.`);
     ui.showScreen('victory');
   }
 }
@@ -3735,6 +3966,7 @@ function drainEvents() {
   for (let i = 0; i < events.length; i += 1) {
     const e = events[i];
     if (e.type === 'banner') ui.banner(e.title, e.sub, e.dur);
+    else if (e.type === 'missionComplete') ui.showMissionComplete(e);
     else if (e.type === 'state') showStateScreen(e.state);
     else if (e.type === 'sfx') sfx[e.name] && sfx[e.name](e.arg);
     else if (e.type === 'mute') {
@@ -3786,6 +4018,10 @@ function frame(now) {
       health: world.player.health,
       ammo: world.player.ammo,
       hasPistol: world.player.hasPistol,
+      weapon: world.player.weapon,
+      shotgunAmmo: world.player.shotgunAmmo,
+      missionsDone: world.missions.completed.length,
+      missionsTotal: MISSIONS.length,
       objective: world.objective,
       prompt: world.prompt,
     });
